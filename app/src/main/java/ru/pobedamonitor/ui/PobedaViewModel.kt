@@ -37,6 +37,8 @@ data class UiState(
     /** Обратные цены: "hub-arrival" -> (дата ISO -> цена). */
     val returnPrices: Map<String, Map<String, PobedaRepository.PriceEntry>> = emptyMap(),
     // --- /режим «выходных» ---
+    /** Фильтр «Куда»: пустой список = все направления. */
+    val destinationsSelected: Set<String> = emptySet(),
     val isLoading: Boolean = false,
     val routes: List<PobedaRepository.RoutePrices> = emptyList(),
     val errors: List<String> = emptyList(),
@@ -79,6 +81,52 @@ data class UiState(
 
     fun keyFor(route: PobedaRepository.RoutePrices): String =
         "${route.hubIata}-${route.arrivalIata}"
+
+    /** Направления, отфильтрованные по выбранному аэропорту прилёта («Куда»). */
+    fun visibleRoutes(): List<PobedaRepository.RoutePrices> =
+        if (destinationsSelected.isEmpty()) routes
+        else routes.filter { it.arrivalIata in destinationsSelected }
+
+    /**
+     * Пара «туда/обратно» для одной карточки: вылет из хаба в город назначения
+     * в выбранный день недели + возврат из этого города обратно в хаб через
+     * 2..9 дней в выбранные дни (охватывает переход через границу месяца).
+     */
+    data class TripPair(
+        val route: PobedaRepository.RoutePrices,
+        val legs: List<Leg>,
+    ) {
+        data class Leg(
+            val outboundDate: LocalDate,
+            val outbound: PobedaRepository.PriceEntry?,
+            val returns: List<Pair<LocalDate, PobedaRepository.PriceEntry>>,
+        )
+
+        /** Минимальная суммарная цена пары туда+обратно. */
+        val cheapestTotal: Int?
+            get() = legs.mapNotNull { leg ->
+                val o = leg.outbound ?: return@mapNotNull null
+                val r = leg.returns.minByOrNull { it.second.price }?.second ?: return@mapNotNull null
+                o.price + r.price
+            }.minOrNull()
+    }
+
+    /** Собирает пары «туда + обратно» по датам вылета (режим выходных). */
+    fun tripPairs(departureDates: List<LocalDate>): List<TripPair> {
+        return visibleRoutes().map { route ->
+            val ret = returnPrices[keyFor(route)] ?: emptyMap()
+            val legs = departureDates.mapNotNull { dep ->
+                val out = route.prices[dep.toString()]
+                val returns = (2L..9L)
+                    .map { dep.plusDays(it) }
+                    .filter { it.dayOfWeek in returnDays && returnEnabled }
+                    .mapNotNull { rd -> ret[rd.toString()]?.let { rd to it } }
+                if (out == null && returns.isEmpty()) return@mapNotNull null
+                TripPair.Leg(dep, out, returns)
+            }
+            TripPair(route, legs)
+        }.filter { it.legs.isNotEmpty() }
+    }
 }
 
 class PobedaViewModel : ViewModel() {
@@ -137,6 +185,19 @@ class PobedaViewModel : ViewModel() {
             if (!sel.remove(day)) sel.add(day)
             s.copy(returnDays = if (sel.isEmpty()) setOf(day) else sel)
         }
+    }
+
+    /** Выбор аэропорта(ов) прилёта; пустое множество = все направления. */
+    fun toggleDestination(iata: String) {
+        _state.update { s ->
+            val sel = s.destinationsSelected.toMutableSet()
+            if (!sel.remove(iata)) sel.add(iata)
+            s.copy(destinationsSelected = sel)
+        }
+    }
+
+    fun clearDestinations() {
+        _state.update { it.copy(destinationsSelected = emptySet()) }
     }
 
     fun refresh() {

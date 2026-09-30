@@ -25,6 +25,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import ru.pobedamonitor.data.Airport
+import ru.pobedamonitor.data.Airports
 import ru.pobedamonitor.data.PobedaRepository
 import ru.pobedamonitor.ui.PobedaViewModel
 import ru.pobedamonitor.ui.SearchMode
@@ -70,12 +72,14 @@ fun MainScreen(vm: PobedaViewModel = viewModel()) {
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
         TopAppBar(state = state, onRefresh = vm::refresh)
         FilterRow(state = state, vm = vm)
+        DestinationPicker(state = state, vm = vm)
         Divider(modifier = Modifier.padding(vertical = 8.dp))
 
+        val visible = state.visibleRoutes()
         when {
-            state.isLoading && state.routes.isEmpty() -> LoadingBlock()
-            state.routes.isEmpty() && !state.isLoading -> EmptyBlock(state)
-            else -> RouteList(state)
+            state.isLoading && visible.isEmpty() -> LoadingBlock()
+            visible.isEmpty() && !state.isLoading -> EmptyBlock(state)
+            else -> RouteList(state, visible)
         }
     }
 }
@@ -112,6 +116,102 @@ private fun TopAppBar(state: UiState, onRefresh: () -> Unit) {
             containerColor = MaterialTheme.colorScheme.surface,
         ),
     )
+}
+
+/**
+ * Фильтр «Куда»: выпадающий список всех аэропортов прилёта с поиском
+ * и мультивыбором. Пустой выбор = все направления.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DestinationPicker(state: UiState, vm: PobedaViewModel) {
+    var expanded by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+
+    // Все известные направления + те, что реально присутствуют в ответах API
+    val knownCodes = Airports.ALL.map { it.iata }.toSet()
+    val extra = state.routes
+        .filter { it.arrivalIata !in knownCodes && it.arrivalIata.isNotBlank() }
+        .map { Airport(it.arrivalIata, it.arrivalName.ifBlank { it.arrivalIata }) }
+    val allOptions = (Airports.ALL + extra).distinctBy { it.iata }
+        .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+
+    val filtered = if (query.isBlank()) allOptions else allOptions.filter {
+        it.name.contains(query.trim(), ignoreCase = true) ||
+            it.iata.contains(query.trim(), ignoreCase = true)
+    }
+
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(
+                imageVector = Icons.Default.DateRange, // заглушка не нужна — используем стрелку
+                contentDescription = null,
+                modifier = Modifier.size(0.dp),
+            )
+            Text(
+                text = when {
+                    state.destinationsSelected.isEmpty() -> "Куда: все направления"
+                    state.destinationsSelected.size == 1 -> {
+                        val code = state.destinationsSelected.first()
+                        "Куда: ${Airports.nameOf(code)} ($code)"
+                    }
+                    else -> "Куда: выбрано ${state.destinationsSelected.size}"
+                },
+                maxLines = 1,
+                fontWeight = FontWeight.Medium,
+            )
+            Spacer(Modifier.width(6.dp))
+            Text("▾")
+            if (state.destinationsSelected.isNotEmpty()) {
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = vm::clearDestinations) { Text("Сбросить ✕") }
+            }
+        }
+
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            // Поиск
+            DropdownMenuItem(
+                text = {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        placeholder = { Text("Поиск города или кода…") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                },
+                onClick = {},
+            )
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        if (state.destinationsSelected.isEmpty()) "✓ Все направления"
+                        else "Все направления",
+                        fontWeight = if (state.destinationsSelected.isEmpty())
+                            FontWeight.Bold else FontWeight.Normal,
+                    )
+                },
+                onClick = { vm.clearDestinations() },
+            )
+            filtered.forEach { ap ->
+                val checked = ap.iata in state.destinationsSelected
+                DropdownMenuItem(
+                    leadingIcon = {
+                        Checkbox(checked = checked, onCheckedChange = null)
+                    },
+                    text = { Text("${ap.name} (${ap.iata})") },
+                    onClick = { vm.toggleDestination(ap.iata) },
+                )
+            }
+            if (filtered.isEmpty()) {
+                DropdownMenuItem(text = { Text("Ничего не найдено") }, onClick = {})
+            }
+        }
+    }
 }
 
 @Composable
@@ -348,8 +448,10 @@ private fun EmptyBlock(state: UiState) {
 }
 
 @Composable
-private fun RouteList(state: UiState) {
-    val dayFmt = remember { DateTimeFormatter.ofPattern("dd.MM", Locale("ru")) }
+private fun RouteList(state: UiState, visible: List<PobedaRepository.RoutePrices>) {
+    val dayFmt = remember { DateTimeFormatter.ofPattern("dd.MM", RU) }
+    val longFmt = remember { DateTimeFormatter.ofPattern("EEE d MMM", RU) }
+
     LazyColumn(
         contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -365,50 +467,35 @@ private fun RouteList(state: UiState) {
                 }
             }
         }
-        items(state.routes, key = { "r-${it.hubIata}-${it.arrivalIata}" }) { route ->
-            RouteCard(route, dayFmt)
-        }
-        // Обратные билеты отдельным блоком (когда включён возврат в режиме выходных)
-        if (state.returnEnabled && state.mode == SearchMode.WEEKENDS) {
-            item(key = "ret-header") { ReturnHeader() }
-            items(
-                state.routes.filter { state.keyFor(it) in state.returnPrices },
-                key = { "ret-${it.hubIata}-${it.arrivalIata}" },
-            ) { route ->
-                ReturnRouteCard(route, state, dayFmt)
+
+        if (state.mode == SearchMode.WEEKENDS && state.returnEnabled) {
+            // Пары «туда/обратно» в одной карточке: под ценой вылета — цена возврата.
+            val pairs = state.tripPairs(state.weekendDepartureDates())
+            items(pairs, key = { "p-${it.route.hubIata}-${it.route.arrivalIata}" }) { pair ->
+                TripPairCard(pair, state, dayFmt, longFmt)
+            }
+        } else if (state.mode == SearchMode.WEEKENDS) {
+            items(visible, key = { "r-${it.hubIata}-${it.arrivalIata}" }) { route ->
+                RouteCard(route, dayFmt)
+            }
+        } else {
+            items(visible, key = { "r-${it.hubIata}-${it.arrivalIata}" }) { route ->
+                RouteCard(route, dayFmt)
             }
         }
     }
 }
 
+/** Карточка-пара: маршруты туда и сразу под ними цены обратных билетов по тем же датам. */
 @Composable
-private fun ReturnHeader() {
-    Column(Modifier.padding(top = 8.dp)) {
-        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-        Text(
-            "Обратно",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            "Цены билетов из пункта назначения обратно (вылет через 2–9 дней от даты туда).",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun ReturnRouteCard(
-    route: PobedaRepository.RoutePrices,
+private fun TripPairCard(
+    pair: UiState.TripPair,
     state: UiState,
     dayFmt: DateTimeFormatter,
+    longFmt: DateTimeFormatter,
 ) {
-    val prices = state.returnPrices[state.keyFor(route)] ?: return
+    val route = pair.route
     val hubName = PobedaRepository.HUBS.first { it.iata == route.hubIata }.name
-    val sorted = prices.values.sortedBy { it.depDate }
-    val cheapest = sorted.minByOrNull { it.price }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -422,51 +509,96 @@ private fun ReturnRouteCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "${route.arrivalName.ifBlank { route.arrivalIata }} → $hubName",
+                    "$hubName ↔ ${route.arrivalName.ifBlank { route.arrivalIata }}",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
-                cheapest?.let {
-                    Text(
-                        formatPrice(it.price),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                    )
+                pair.cheapestTotal?.let {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            formatPrice(it),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "туда + обратно",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                sorted.forEach { entry ->
-                    val isMin = entry.price == cheapest?.price
-                    val date = runCatching { LocalDate.parse(entry.depDate).format(dayFmt) }
-                        .getOrDefault(entry.depDate)
-                    ElevatedCard(
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.background(
-                            if (isMin) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surface
-                        ),
-                    ) {
-                        Column(
-                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Text(date, style = MaterialTheme.typography.labelSmall)
-                            Text(
-                                formatPrice(entry.price),
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = if (isMin) FontWeight.Bold else FontWeight.Normal,
+
+            pair.legs.forEach { leg ->
+                Column(Modifier.padding(vertical = 5.dp)) {
+                    // --- Туда ---
+                    PriceLine(
+                        label = "✈ Туда · " + leg.outboundDate.format(longFmt)
+                            .replaceFirstChar { it.uppercase(RU) },
+                        entry = leg.outbound,
+                        missingText = "нет тарифа",
+                    )
+                    // --- Обратно (сразу под ценой вылета) ---
+                    if (leg.returns.isEmpty()) {
+                        Text(
+                            "↵ Обратно: нет тарифов на выбранные дни",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 12.dp, top = 2.dp),
+                        )
+                    } else {
+                        val minRet = leg.returns.minOf { it.second.price }
+                        leg.returns.forEach { (date, entry) ->
+                            PriceLine(
+                                label = "↵ Обратно · " + date.format(longFmt)
+                                    .replaceFirstChar { it.uppercase(RU) },
+                                entry = entry,
+                                missingText = null,
+                                highlight = entry.price == minRet,
                             )
                         }
                     }
                 }
+                if (leg !== pair.legs.last()) HorizontalDivider(Modifier.padding(vertical = 2.dp))
             }
+        }
+    }
+}
+
+/** Одна строка: «✈ Туда · Пт 26 дек» ……… «5 499 ₽». */
+@Composable
+private fun PriceLine(
+    label: String,
+    entry: PobedaRepository.PriceEntry?,
+    missingText: String?,
+    highlight: Boolean = false,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (entry != null) {
+            Text(
+                formatPrice(entry.price),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (highlight) FontWeight.Bold else FontWeight.Medium,
+                color = if (highlight) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface,
+            )
+        } else {
+            Text(
+                missingText ?: "—",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
