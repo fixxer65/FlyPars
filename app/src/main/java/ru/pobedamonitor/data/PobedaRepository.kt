@@ -136,6 +136,32 @@ class PobedaRepository {
         FetchResult(merged, errors.toList())
     }
 
+    /**
+     * Обратные направления: с какой даты и по какой цене можно улететь из
+     * города [arrivalIata] обратно в хаб [hubIata] (например, Стамбул → Москва).
+     * Тот же API best-offers, но в параметре departure указываем город назначения.
+     */
+    suspend fun fetchReturnPrices(
+        hubIata: String,
+        arrivalIata: String,
+        dates: List<LocalDate>,
+    ): Map<String, PriceEntry> = withContext(Dispatchers.IO) {
+        coroutineScope {
+            dates.map { date ->
+                async {
+                    try {
+                        val json = httpGetJson(buildUrl(arrivalIata, date))
+                        parseDay(hubIata, json)
+                            .firstOrNull { it.arrivalIata == hubIata }
+                            ?.prices?.get(date.format(isoFmt))
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+            }.awaitAll()
+        }.filterNotNull().associateBy { it.depDate }
+    }
+
     private fun buildUrl(hub: String, date: LocalDate): String =
         "$API_BASE?locale=ru&departure%5B0%5D=$hub&dates%5B0%5D=${date.format(isoFmt)}"
 

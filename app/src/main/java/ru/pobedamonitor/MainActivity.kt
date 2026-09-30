@@ -209,52 +209,66 @@ private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
     }
 }
 
-/** Режим «выходных»: выбор месяца и дней недели (например, Пт–Вс по всем неделям). */
+/** Режим «выходных»: месяц + дни вылета «туда» + опция обратных билетов. */
 @Composable
 private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
     val monthFmt = remember {
         java.time.format.DateTimeFormatter.ofPattern("MMMM yyyy", RU)
     }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        IconButton(onClick = { vm.shiftMonth(-1); vm.refresh() }) {
-            Text("‹", fontSize = MaterialTheme.typography.headlineMedium.fontSize)
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            IconButton(onClick = { vm.shiftMonth(-1); vm.refresh() }) {
+                Text("‹", fontSize = MaterialTheme.typography.headlineMedium.fontSize)
+            }
+            AssistChip(
+                onClick = { vm.setMonth(java.time.YearMonth.now().plusMonths(1)); vm.refresh() },
+                label = {
+                    Text(
+                        state.month.atDay(1).format(monthFmt)
+                            .replaceFirstChar { it.uppercase(RU) },
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                },
+            )
+            IconButton(onClick = { vm.shiftMonth(+1); vm.refresh() }) {
+                Text("›", fontSize = MaterialTheme.typography.headlineMedium.fontSize)
+            }
         }
-        AssistChip(
-            onClick = { vm.setMonth(java.time.YearMonth.now().plusMonths(1)); vm.refresh() },
-            label = {
-                Text(
-                    state.month.atDay(1).format(monthFmt)
-                        .replaceFirstChar { it.uppercase(RU) },
-                    fontWeight = FontWeight.SemiBold,
-                )
-            },
+
+        // Дни вылета «туда»
+        DayRow(
+            caption = "Туда:",
+            selected = state.outboundDays,
+            onToggle = { day -> vm.toggleWeekendDay(day); vm.refresh() },
         )
-        IconButton(onClick = { vm.shiftMonth(+1); vm.refresh() }) {
-            Text("›", fontSize = MaterialTheme.typography.headlineMedium.fontSize)
+
+        // Обратные билеты
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(
+                checked = state.returnEnabled,
+                onCheckedChange = {
+                    vm.toggleReturnEnabled(it)
+                    vm.refresh()
+                },
+            )
+            Text("Показывать обратные билеты", style = MaterialTheme.typography.bodyMedium)
         }
-
-        Spacer(Modifier.width(4.dp))
-
-        // Чипы дней недели: какие дни считать «стартом» поездки
-        listOf(
-            DayOfWeek.THURSDAY to "Чт",
-            DayOfWeek.FRIDAY to "Пт",
-            DayOfWeek.SATURDAY to "Сб",
-            DayOfWeek.SUNDAY to "Вс",
-            DayOfWeek.MONDAY to "Пн",
-        ).forEach { (day, short) ->
-            FilterChip(
-                selected = day in state.weekendDays,
-                onClick = { vm.toggleWeekendDay(day); vm.refresh() },
-                label = { Text(short) },
+        if (state.returnEnabled) {
+            DayRow(
+                caption = "Обратно:",
+                selected = state.returnDays,
+                onToggle = { day -> vm.toggleReturnDay(day); vm.refresh() },
             )
         }
     }
@@ -269,6 +283,44 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
             maxLines = 2,
             modifier = Modifier.padding(bottom = 4.dp),
         )
+    }
+}
+
+/** Горизонтальная строка чипов дней недели с подписью («Туда:» / «Обратно:»). */
+@Composable
+private fun DayRow(
+    caption: String,
+    selected: Set<DayOfWeek>,
+    onToggle: (DayOfWeek) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            caption,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        listOf(
+            DayOfWeek.MONDAY to "Пн",
+            DayOfWeek.TUESDAY to "Вт",
+            DayOfWeek.WEDNESDAY to "Ср",
+            DayOfWeek.THURSDAY to "Чт",
+            DayOfWeek.FRIDAY to "Пт",
+            DayOfWeek.SATURDAY to "Сб",
+            DayOfWeek.SUNDAY to "Вс",
+        ).forEach { (day, short) ->
+            FilterChip(
+                selected = day in selected,
+                onClick = { onToggle(day) },
+                label = { Text(short) },
+            )
+        }
     }
 }
 
@@ -313,8 +365,108 @@ private fun RouteList(state: UiState) {
                 }
             }
         }
-        items(state.routes, key = { "${it.hubIata}-${it.arrivalIata}" }) { route ->
+        items(state.routes, key = { "r-${it.hubIata}-${it.arrivalIata}" }) { route ->
             RouteCard(route, dayFmt)
+        }
+        // Обратные билеты отдельным блоком (когда включён возврат в режиме выходных)
+        if (state.returnEnabled && state.mode == SearchMode.WEEKENDS) {
+            item(key = "ret-header") { ReturnHeader() }
+            items(
+                state.routes.filter { state.keyFor(it) in state.returnPrices },
+                key = { "ret-${it.hubIata}-${it.arrivalIata}" },
+            ) { route ->
+                ReturnRouteCard(route, state, dayFmt)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReturnHeader() {
+    Column(Modifier.padding(top = 8.dp)) {
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        Text(
+            "Обратно",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            "Цены билетов из пункта назначения обратно (вылет через 2–9 дней от даты туда).",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun ReturnRouteCard(
+    route: PobedaRepository.RoutePrices,
+    state: UiState,
+    dayFmt: DateTimeFormatter,
+) {
+    val prices = state.returnPrices[state.keyFor(route)] ?: return
+    val hubName = PobedaRepository.HUBS.first { it.iata == route.hubIata }.name
+    val sorted = prices.values.sortedBy { it.depDate }
+    val cheapest = sorted.minByOrNull { it.price }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "${route.arrivalName.ifBlank { route.arrivalIata }} → $hubName",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                cheapest?.let {
+                    Text(
+                        formatPrice(it.price),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                sorted.forEach { entry ->
+                    val isMin = entry.price == cheapest?.price
+                    val date = runCatching { LocalDate.parse(entry.depDate).format(dayFmt) }
+                        .getOrDefault(entry.depDate)
+                    ElevatedCard(
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.background(
+                            if (isMin) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surface
+                        ),
+                    ) {
+                        Column(
+                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(date, style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                formatPrice(entry.price),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (isMin) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
