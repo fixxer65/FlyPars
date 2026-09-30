@@ -82,8 +82,15 @@ class PobedaRepository {
         from: LocalDate,
         to: LocalDate,
         hubs: List<String> = HUBS.map { it.iata },
+        onlyDates: Set<LocalDate>? = null,
     ): FetchResult = withContext(Dispatchers.IO) {
-        val dates = generateSequence(from) { if (it < to) it.plusDays(1) else null }.toList()
+        // В режиме «выходных» запрашиваем только выбранные даты (например, пятницы),
+        // в обычном — все дни диапазона подряд.
+        val dates = if (!onlyDates.isNullOrEmpty()) {
+            onlyDates.sorted()
+        } else {
+            generateSequence(from) { if (it < to) it.plusDays(1) else null }.toList()
+        }
         val errors = java.util.concurrent.ConcurrentLinkedQueue<String>()
 
         val routes: List<RoutePrices> = coroutineScope {
@@ -112,6 +119,12 @@ class PobedaRepository {
                     arrivalIata = parts.first().arrivalIata,
                     arrivalName = parts.first().arrivalName,
                     prices = parts.flatMap { p -> p.prices.values }
+                        .filter { e ->
+                            // В режиме «выходных» API может вернуть соседние даты —
+                            // оставляем только запрошенные.
+                            onlyDates.isNullOrEmpty() ||
+                                runCatching { LocalDate.parse(e.depDate) in onlyDates }.isSuccess
+                        }
                         .associateBy { it.depDate },
                 )
             }

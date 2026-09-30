@@ -27,10 +27,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.pobedamonitor.data.PobedaRepository
 import ru.pobedamonitor.ui.PobedaViewModel
+import ru.pobedamonitor.ui.SearchMode
 import ru.pobedamonitor.ui.UiState
+import java.time.DayOfWeek
 import java.time.LocalDate
+
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+private val RU = Locale("ru")
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -111,8 +116,57 @@ private fun TopAppBar(state: UiState, onRefresh: () -> Unit) {
 
 @Composable
 private fun FilterRow(state: UiState, vm: PobedaViewModel) {
+    Column(Modifier.fillMaxWidth()) {
+        // Переключатель режима поиска
+        SingleChoiceSegmentedButtonRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+        ) {
+            SegmentedButton(
+                selected = state.mode == SearchMode.ALL_DAYS,
+                onClick = { vm.setMode(SearchMode.ALL_DAYS); vm.refresh() },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+            ) { Text("Все дни") }
+            SegmentedButton(
+                selected = state.mode == SearchMode.WEEKENDS,
+                onClick = { vm.setMode(SearchMode.WEEKENDS); vm.refresh() },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+            ) { Text("Выходные в месяце") }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            // Переключатели хабов
+            PobedaRepository.HUBS.forEach { hub ->
+                val selected = hub.iata in state.hubsSelected
+                FilterChip(
+                    selected = selected,
+                    onClick = { vm.toggleHub(hub.iata); vm.refresh() },
+                    label = { Text(hub.name) },
+                )
+            }
+        }
+
+        if (state.mode == SearchMode.ALL_DAYS) {
+            AllDaysControls(state, vm)
+        } else {
+            WeekendsControls(state, vm)
+        }
+    }
+}
+
+/** Обычный режим: дата начала + глубина периода. */
+@Composable
+private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
     val context = LocalContext.current
-    val dateFmt = remember { DateTimeFormatter.ofPattern("dd MMM yyyy", Locale("ru")) }
+    val dateFmt = remember { DateTimeFormatter.ofPattern("dd MMM yyyy", RU) }
 
     Row(
         modifier = Modifier
@@ -122,16 +176,6 @@ private fun FilterRow(state: UiState, vm: PobedaViewModel) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // Переключатели хабов
-        PobedaRepository.HUBS.forEach { hub ->
-            val selected = hub.iata in state.hubsSelected
-            FilterChip(
-                selected = selected,
-                onClick = { vm.toggleHub(hub.iata); vm.refresh() },
-                label = { Text(hub.name) },
-            )
-        }
-
         OutlinedButton(onClick = {
             val d = state.fromDate
             DatePickerDialog(
@@ -162,6 +206,69 @@ private fun FilterRow(state: UiState, vm: PobedaViewModel) {
                 label = { Text("${days} дн.") },
             )
         }
+    }
+}
+
+/** Режим «выходных»: выбор месяца и дней недели (например, Пт–Вс по всем неделям). */
+@Composable
+private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
+    val monthFmt = remember {
+        java.time.format.DateTimeFormatter.ofPattern("MMMM yyyy", RU)
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        IconButton(onClick = { vm.shiftMonth(-1); vm.refresh() }) {
+            Text("‹", fontSize = MaterialTheme.typography.headlineMedium.fontSize)
+        }
+        AssistChip(
+            onClick = { vm.setMonth(java.time.YearMonth.now().plusMonths(1)); vm.refresh() },
+            label = {
+                Text(
+                    state.month.atDay(1).format(monthFmt)
+                        .replaceFirstChar { it.uppercase(RU) },
+                    fontWeight = FontWeight.SemiBold,
+                )
+            },
+        )
+        IconButton(onClick = { vm.shiftMonth(+1); vm.refresh() }) {
+            Text("›", fontSize = MaterialTheme.typography.headlineMedium.fontSize)
+        }
+
+        Spacer(Modifier.width(4.dp))
+
+        // Чипы дней недели: какие дни считать «стартом» поездки
+        listOf(
+            DayOfWeek.THURSDAY to "Чт",
+            DayOfWeek.FRIDAY to "Пт",
+            DayOfWeek.SATURDAY to "Сб",
+            DayOfWeek.SUNDAY to "Вс",
+            DayOfWeek.MONDAY to "Пн",
+        ).forEach { (day, short) ->
+            FilterChip(
+                selected = day in state.weekendDays,
+                onClick = { vm.toggleWeekendDay(day); vm.refresh() },
+                label = { Text(short) },
+            )
+        }
+    }
+
+    val dates = state.weekendDepartureDates()
+    if (dates.isNotEmpty()) {
+        val fmt = remember { DateTimeFormatter.ofPattern("EEE d MMM", RU) }
+        Text(
+            text = dates.joinToString(", ") { it.format(fmt).replaceFirstChar { c -> c.uppercase(RU) } },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
     }
 }
 
