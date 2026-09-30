@@ -190,6 +190,10 @@ data class UiState(
             TripPair(route, legs)
         }.filter { it.legs.isNotEmpty() }
     }
+
+    /** Лучшая суммарная цена «туда+обратно» среди всех направлений (для шапки результатов). */
+    fun bestPairTotal(departureDates: List<LocalDate>): Int? =
+        tripPairs(departureDates).mapNotNull { it.cheapestTotal }.minOrNull()
 }
 
 class PobedaViewModel : ViewModel() {

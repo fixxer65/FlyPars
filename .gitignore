@@ -1,13 +1,19 @@
 # Gradle
 .gradle/
 
-# Android Build
+# Build directories
 build/
-*.apk
+app/build/
 
 # Kotlin
-*.classnode_modules/
+*.class
+*.jar
+*.aar
+*.ap_
+*.dex
+
+# Logs
+*.lognode_modules/
 .next/
 dist/
 *.log
-node_modules/

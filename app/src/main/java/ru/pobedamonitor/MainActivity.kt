@@ -4,23 +4,39 @@ import android.app.DatePickerDialog
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.outlined.AirplanemodeActive
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -31,12 +47,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.pobedamonitor.data.Airport
 import ru.pobedamonitor.data.Airports
 import ru.pobedamonitor.data.PobedaRepository
+import ru.pobedamonitor.ui.PobedaMonitorTheme
 import ru.pobedamonitor.ui.PobedaViewModel
 import ru.pobedamonitor.ui.SearchMode
 import ru.pobedamonitor.ui.UiState
 import java.time.DayOfWeek
 import java.time.LocalDate
-
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -46,94 +62,218 @@ private val RU = Locale("ru")
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
-            MaterialTheme(colorScheme = PobedaColors) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background,
-                ) {
-                    MainScreen()
-                }
+            PobedaMonitorTheme {
+                MainScreen()
             }
-        }
-    }
-}
-
-private val PobedaColors
-    get() = lightColorScheme(
-        primary = Color(0xFFE4232B),        // фирменный красный «Победы»
-        onPrimary = Color.White,
-        secondary = Color(0xFF1B1B1F),
-        background = Color(0xFFF6F6F8),
-        surface = Color.White,
-        errorContainer = Color(0xFFFFE5E5),
-    )
-
-@Composable
-fun MainScreen(vm: PobedaViewModel = viewModel()) {
-    val state by vm.state.collectAsStateWithLifecycle()
-
-    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-        TopAppBar(state = state, onRefresh = { vm.refreshRate(); vm.refresh() })
-        FilterRow(state = state, vm = vm)
-        DestinationPicker(state = state, vm = vm)
-        Divider(modifier = Modifier.padding(vertical = 8.dp))
-
-        val visible = state.visibleRoutes()
-        when {
-            state.isLoading && visible.isEmpty() -> LoadingBlock()
-            visible.isEmpty() && !state.isLoading -> EmptyBlock(state)
-            else -> RouteList(state, visible)
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TopAppBar(state: UiState, onRefresh: () -> Unit) {
-    CenterAlignedTopAppBar(
-        title = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Авиабилеты Победа", fontWeight = FontWeight.Bold)
-                state.lastUpdated?.let {
-                    Text(
-                        "Обновлено: $it",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                // Курс RUB -> BYN для конвертации цен в белорусские рубли
-                val rateText = when {
-                    state.bynPerRub != null -> {
-                        val src = state.rateSource?.let { " · $it" } ?: ""
-                        "Курс: 1 RUB = ${String.format(RU, "%.4f", state.bynPerRub)} BYN$src"
+fun MainScreen(vm: PobedaViewModel = viewModel()) {
+    val state by vm.state.collectAsStateWithLifecycle()
+    val scroll = rememberTopAppBarState()
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(scroll)
+
+    Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
+        topBar = {
+            LargeTopAppBar(
+                title = { Text("Победа · цены", fontWeight = FontWeight.ExtraBold) },
+                scrollBehavior = scrollBehavior,
+                colors = TopAppBarDefaults.largeTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+                actions = {
+                    // Кнопка обновления — круглая, в цвет шапки
+                    IconButton(onClick = { vm.refreshRate(); vm.refresh() }, enabled = !state.isLoading) {
+                        if (state.isLoading) {
+                            CircularProgressIndicator(
+                                Modifier.size(22.dp),
+                                strokeWidth = 2.5.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Обновить",
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        }
                     }
-                    state.rateError != null -> "Курс BYN недоступен (${state.rateError})"
-                    else -> "Загружаем курс BYN…"
-                }
-                Text(
-                    rateText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+                },
+            )
         },
-        actions = {
-            IconButton(onClick = onRefresh, enabled = !state.isLoading) {
-                if (state.isLoading) {
-                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp)
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Обновить",
-                    )
+    ) { innerPadding ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = 14.dp),
+        ) {
+            Spacer(Modifier.height(6.dp))
+            RateAndUpdatedChip(state)
+            FilterCard(state = state, vm = vm)
+            Spacer(Modifier.height(8.dp))
+
+            val visible = state.visibleRoutes()
+            when {
+                state.isLoading && visible.isEmpty() -> LoadingBlock()
+                visible.isEmpty() && !state.isLoading -> EmptyBlock(state)
+                else -> {
+                    ResultsHeader(state, visible)
+                    RouteList(state, visible, scrollBehavior)
                 }
             }
-        },
-        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-        ),
-    )
+        }
+    }
+}
+
+/** Компактная плашка: курс BYN + время обновления. */
+@Composable
+private fun RateAndUpdatedChip(state: UiState) {
+    val rateText = when {
+        state.bynPerRub != null -> {
+            val src = state.rateSource?.let { " · $it" } ?: ""
+            "Курс: 1 RUB = ${String.format(RU, "%.4f", state.bynPerRub)} BYN$src"
+        }
+        state.rateError != null -> "Курс BYN недоступен"
+        else -> "Загружаем курс BYN…"
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            tonalElevation = 1.dp,
+        ) {
+            Text(
+                rateText,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
+        state.lastUpdated?.let {
+            Text(
+                "обновлено $it",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Все элементы управления аккуратно собраны в одной «тонированной» карточке. */
+@Composable
+private fun FilterCard(state: UiState, vm: PobedaViewModel) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = CardDefaults.outlinedCardBorder(),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            ModeTabs(state, vm)
+            Spacer(Modifier.height(10.dp))
+            HubChips(state, vm)
+            Spacer(Modifier.height(8.dp))
+            DestinationPicker(state, vm)
+            Spacer(Modifier.height(6.dp))
+            if (state.mode == SearchMode.ALL_DAYS) {
+                AllDaysControls(state, vm)
+            } else {
+                WeekendsControls(state, vm)
+            }
+        }
+    }
+}
+
+/** Красивый переключатель режимов в стиле сегментированных вкладок. */
+@Composable
+private fun ModeTabs(state: UiState, vm: PobedaViewModel) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            SearchMode.entries.forEachIndexed { index, mode ->
+                val selected = state.mode == mode
+                val label = if (mode == SearchMode.ALL_DAYS) "Все дни" else "Выходные в месяце"
+                Surface(
+                    onClick = {
+                        if (!selected) { vm.setMode(mode); vm.refresh() }
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (selected) MaterialTheme.colorScheme.primary
+                            else Color.Transparent,
+                    contentColor = if (selected) MaterialTheme.colorScheme.onPrimary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Box(
+                        Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Чипы выбора хабов (Москва / Минск). */
+@Composable
+private fun HubChips(state: UiState, vm: PobedaViewModel) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Откуда:",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        PobedaRepository.HUBS.forEach { hub ->
+            val selected = hub.iata in state.hubsSelected
+            FilterChip(
+                selected = selected,
+                onClick = { vm.toggleHub(hub.iata); vm.refresh() },
+                label = { Text(hub.name, fontWeight = FontWeight.Medium) },
+                leadingIcon = {
+                    if (selected) {
+                        Icon(Icons.Default.CheckCircle, null, Modifier.size(18.dp))
+                    } else {
+                        Icon(Icons.Outlined.AirplanemodeActive, null, Modifier.size(18.dp))
+                    }
+                },
+                shape = RoundedCornerShape(50),
+            )
+        }
+    }
 }
 
 /**
@@ -146,7 +286,6 @@ private fun DestinationPicker(state: UiState, vm: PobedaViewModel) {
     var expanded by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
 
-    // Все известные направления + те, что реально присутствуют в ответах API
     val knownCodes = Airports.ALL.map { it.iata }.toSet()
     val extra = state.routes
         .filter { it.arrivalIata !in knownCodes && it.arrivalIata.isNotBlank() }
@@ -160,37 +299,34 @@ private fun DestinationPicker(state: UiState, vm: PobedaViewModel) {
     }
 
     Box(Modifier.fillMaxWidth()) {
-        OutlinedButton(
-            onClick = { expanded = true },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(
-                imageVector = Icons.Default.DateRange, // заглушка не нужна — используем стрелку
-                contentDescription = null,
-                modifier = Modifier.size(0.dp),
-            )
-            Text(
-                text = when {
-                    state.destinationsSelected.isEmpty() -> "Куда: все направления"
-                    state.destinationsSelected.size == 1 -> {
-                        val code = state.destinationsSelected.first()
-                        "Куда: ${Airports.nameOf(code)} ($code)"
-                    }
-                    else -> "Куда: выбрано ${state.destinationsSelected.size}"
-                },
-                maxLines = 1,
-                fontWeight = FontWeight.Medium,
-            )
-            Spacer(Modifier.width(6.dp))
-            Text("▾")
-            if (state.destinationsSelected.isNotEmpty()) {
-                Spacer(Modifier.width(8.dp))
-                TextButton(onClick = vm::clearDestinations) { Text("Сбросить ✕") }
-            }
-        }
+        OutlinedTextField(
+            value = when {
+                state.destinationsSelected.isEmpty() -> "все направления"
+                state.destinationsSelected.size == 1 -> {
+                    val code = state.destinationsSelected.first()
+                    "${Airports.nameOf(code)} ($code)"
+                }
+                else -> "выбрано ${state.destinationsSelected.size}"
+            },
+            onValueChange = {},
+            readOnly = true,
+            enabled = false, // сам клик перехватывается прозрачным Box'ом ниже
+            label = { Text("Куда") },
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+            trailingIcon = {
+                if (state.destinationsSelected.isNotEmpty()) {
+                    TextButton(onClick = vm::clearDestinations) { Text("Сброс ✕") }
+                } else {
+                    Icon(Icons.Default.ExpandMore, null)
+                }
+            },
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickableBox { expanded = true },
+        )
 
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            // Поиск
             DropdownMenuItem(
                 text = {
                     OutlinedTextField(
@@ -198,6 +334,7 @@ private fun DestinationPicker(state: UiState, vm: PobedaViewModel) {
                         onValueChange = { query = it },
                         placeholder = { Text("Поиск города или кода…") },
                         singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 },
@@ -218,9 +355,7 @@ private fun DestinationPicker(state: UiState, vm: PobedaViewModel) {
             filtered.forEach { ap ->
                 val checked = ap.iata in state.destinationsSelected
                 DropdownMenuItem(
-                    leadingIcon = {
-                        Checkbox(checked = checked, onCheckedChange = null)
-                    },
+                    leadingIcon = { Checkbox(checked = checked, onCheckedChange = null) },
                     text = { Text("${ap.name} (${ap.iata})") },
                     onClick = { vm.toggleDestination(ap.iata) },
                 )
@@ -232,52 +367,15 @@ private fun DestinationPicker(state: UiState, vm: PobedaViewModel) {
     }
 }
 
+/** Ловим клики по «только для чтения» полю-фильтру без ripple-подсветки поля. */
 @Composable
-private fun FilterRow(state: UiState, vm: PobedaViewModel) {
-    Column(Modifier.fillMaxWidth()) {
-        // Переключатель режима поиска
-        SingleChoiceSegmentedButtonRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-        ) {
-            SegmentedButton(
-                selected = state.mode == SearchMode.ALL_DAYS,
-                onClick = { vm.setMode(SearchMode.ALL_DAYS); vm.refresh() },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-            ) { Text("Все дни") }
-            SegmentedButton(
-                selected = state.mode == SearchMode.WEEKENDS,
-                onClick = { vm.setMode(SearchMode.WEEKENDS); vm.refresh() },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-            ) { Text("Выходные в месяце") }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            // Переключатели хабов
-            PobedaRepository.HUBS.forEach { hub ->
-                val selected = hub.iata in state.hubsSelected
-                FilterChip(
-                    selected = selected,
-                    onClick = { vm.toggleHub(hub.iata); vm.refresh() },
-                    label = { Text(hub.name) },
-                )
-            }
-        }
-
-        if (state.mode == SearchMode.ALL_DAYS) {
-            AllDaysControls(state, vm)
-        } else {
-            WeekendsControls(state, vm)
-        }
-    }
+private fun Modifier.clickableBox(onClick: () -> Unit): Modifier {
+    val interaction = remember { MutableInteractionSource() }
+    return this.clickable(
+        interactionSource = interaction,
+        indication = null,
+        onClick = onClick,
+    )
 }
 
 /** Обычный режим: дата начала + глубина периода. */
@@ -289,12 +387,11 @@ private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(vertical = 4.dp),
+            .horizontalScroll(rememberScrollState()),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        OutlinedButton(onClick = {
+        FilledTonalButton(onClick = {
             val d = state.fromDate
             DatePickerDialog(
                 context,
@@ -306,22 +403,18 @@ private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
             ).apply {
                 datePicker.minDate = System.currentTimeMillis() - 24L * 3600 * 1000
             }.show()
-        }) {
-            Icon(
-                imageVector = Icons.Default.DateRange,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
+        }, shape = RoundedCornerShape(14.dp)) {
+            Icon(Icons.Default.DateRange, null, Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
-            Text(state.fromDate.format(dateFmt))
+            Text(state.fromDate.format(dateFmt), fontWeight = FontWeight.Medium)
         }
 
-        // Выбор глубины периода
         listOf(7, 14, 30).forEach { days ->
             FilterChip(
                 selected = state.daysCount == days,
                 onClick = { vm.setDaysCount(days); vm.refresh() },
                 label = { Text("${days} дн.") },
+                shape = RoundedCornerShape(50),
             )
         }
     }
@@ -330,62 +423,96 @@ private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
 /** Режим «выходных»: месяц + дни вылета «туда» + опция обратных билетов. */
 @Composable
 private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
-    val monthFmt = remember {
-        java.time.format.DateTimeFormatter.ofPattern("MMMM yyyy", RU)
-    }
+    val monthFmt = remember { DateTimeFormatter.ofPattern("MMMM yyyy", RU) }
 
     Column(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        // Навигатор месяца: ‹ декабрь 2026 ›
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.padding(vertical = 4.dp),
         ) {
-            IconButton(onClick = { vm.shiftMonth(-1); vm.refresh() }) {
-                Text("‹", fontSize = MaterialTheme.typography.headlineMedium.fontSize)
-            }
-            AssistChip(
-                onClick = { vm.setMonth(java.time.YearMonth.now().plusMonths(1)); vm.refresh() },
-                label = {
+            Row(
+                Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = { vm.shiftMonth(-1); vm.refresh() }) {
+                    Icon(Icons.Default.ChevronRight, "Предыдущий месяц",
+                        modifier = Modifier.rotate(180f))
+                }
+                Column(
+                    Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Text(
                         state.month.atDay(1).format(monthFmt)
                             .replaceFirstChar { it.uppercase(RU) },
-                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
                     )
-                },
-            )
-            IconButton(onClick = { vm.shiftMonth(+1); vm.refresh() }) {
-                Text("›", fontSize = MaterialTheme.typography.headlineMedium.fontSize)
+                    Text(
+                        "выберите месяц поиска",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = { vm.shiftMonth(+1); vm.refresh() }) {
+                    Icon(Icons.Default.ChevronRight, "Следующий месяц")
+                }
+                IconButton(onClick = {
+                    vm.setMonth(java.time.YearMonth.now().plusMonths(1)); vm.refresh()
+                }) {
+                    Icon(Icons.Default.CalendarMonth, "Текущий месяц")
+                }
             }
         }
 
-        // Дни вылета «туда»
         DayRow(
-            caption = "Туда:",
+            caption = "✈ Туда:",
             selected = state.outboundDays,
+            accent = MaterialTheme.colorScheme.primary,
             onToggle = { day -> vm.toggleWeekendDay(day); vm.refresh() },
         )
 
-        // Обратные билеты
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+        // Переключатель обратных билетов — красивый Switch вместо чекбокса
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = if (state.returnEnabled) MaterialTheme.colorScheme.tertiaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
         ) {
-            Checkbox(
-                checked = state.returnEnabled,
-                onCheckedChange = {
-                    vm.toggleReturnEnabled(it)
-                    vm.refresh()
-                },
-            )
-            Text("Показывать обратные билеты", style = MaterialTheme.typography.bodyMedium)
+            Row(
+                Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.SwapVert,
+                    null,
+                    tint = if (state.returnEnabled) MaterialTheme.colorScheme.onTertiaryContainer
+                           else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "Обратные билеты",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (state.returnEnabled) MaterialTheme.colorScheme.onTertiaryContainer
+                            else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = state.returnEnabled,
+                    onCheckedChange = { vm.toggleReturnEnabled(it); vm.refresh() },
+                )
+            }
         }
+
         if (state.returnEnabled) {
             DayRow(
-                caption = "Обратно:",
+                caption = "↵ Обратно:",
                 selected = state.returnDays,
+                accent = MaterialTheme.colorScheme.tertiary,
                 onToggle = { day -> vm.toggleReturnDay(day); vm.refresh() },
             )
         }
@@ -409,6 +536,7 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
 private fun DayRow(
     caption: String,
     selected: Set<DayOfWeek>,
+    accent: Color,
     onToggle: (DayOfWeek) -> Unit,
 ) {
     Row(
@@ -422,7 +550,8 @@ private fun DayRow(
         Text(
             caption,
             style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = accent,
+            fontWeight = FontWeight.Bold,
         )
         listOf(
             DayOfWeek.MONDAY to "Пн",
@@ -433,11 +562,61 @@ private fun DayRow(
             DayOfWeek.SATURDAY to "Сб",
             DayOfWeek.SUNDAY to "Вс",
         ).forEach { (day, short) ->
-            FilterChip(
-                selected = day in selected,
-                onClick = { onToggle(day) },
-                label = { Text(short) },
+            val isSelected = day in selected
+            val chipColor by animateColorAsState(
+                targetValue = if (isSelected) accent.copy(alpha = 0.16f)
+                              else MaterialTheme.colorScheme.surface,
+                label = "daychip-$short",
             )
+            Surface(
+                onClick = { onToggle(day) },
+                shape = CircleShape,
+                color = chipColor,
+                contentColor = if (isSelected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                border = if (isSelected) null else
+                    androidx.compose.foundation.BorderStroke(
+                        1.dp, MaterialTheme.colorScheme.outlineVariant),
+            ) {
+                Text(
+                    short,
+                    Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                )
+            }
+        }
+    }
+}
+
+/** Шапка результатов: количество направлений + лучшая цена периода. */
+@Composable
+private fun ResultsHeader(state: UiState, visible: List<PobedaRepository.RoutePrices>) {
+    val bestTotal = state.bestPairTotal(state.weekendDepartureDates())
+    val subtitle = when {
+        state.mode == SearchMode.WEEKENDS && state.returnEnabled && bestTotal != null ->
+            "лучшие выходные: всего ${formatPrice(bestTotal)}"
+        state.mode == SearchMode.WEEKENDS -> "направления за выбранные дни месяца"
+        else -> "прямые рейсы на период ${state.fromDate.format(DateTimeFormatter.ofPattern("d MMM", RU))} +"
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column {
+            Text(
+                "Найдено: ${visible.size}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (state.isLoading) {
+            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.5.dp)
         }
     }
 }
@@ -446,9 +625,19 @@ private fun DayRow(
 private fun LoadingBlock() {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                Icons.Default.Flight,
+                null,
+                Modifier.size(56.dp),
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+            )
+            Spacer(Modifier.height(12.dp))
             CircularProgressIndicator()
             Spacer(Modifier.height(12.dp))
-            Text("Загружаем цены с flypobeda.ru…")
+            Text(
+                "Загружаем цены с flypobeda.ru…",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -457,44 +646,54 @@ private fun LoadingBlock() {
 private fun EmptyBlock(state: UiState) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(
-            if (state.errors.isNotEmpty()) "Не удалось загрузить цены.\nПроверьте интернет и повторите."
+            if (state.errors.isNotEmpty())
+                "Не удалось загрузить цены.\nПроверьте интернет и нажмите ⟳."
             else "Нет предложений на выбранные даты.",
             textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RouteList(state: UiState, visible: List<PobedaRepository.RoutePrices>) {
+private fun RouteList(
+    state: UiState,
+    visible: List<PobedaRepository.RoutePrices>,
+    scrollBehavior: TopAppBarScrollBehavior? = null,
+) {
     val dayFmt = remember { DateTimeFormatter.ofPattern("dd.MM", RU) }
     val longFmt = remember { DateTimeFormatter.ofPattern("EEE d MMM", RU) }
 
     LazyColumn(
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = if (scrollBehavior != null)
+            Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
+        else Modifier,
+        contentPadding = PaddingValues(top = 2.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (state.errors.isNotEmpty()) {
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer),
+                ) {
                     Text(
-                        "Часть запросов не удалась (${state.errors.size}).",
-                        Modifier.padding(12.dp),
+                        "⚠️ Часть запросов не удалась (${state.errors.size}). Обновите ещё раз.",
+                        Modifier.padding(14.dp),
                         style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
                     )
                 }
             }
         }
 
         if (state.mode == SearchMode.WEEKENDS && state.returnEnabled) {
-            // Пары «туда/обратно» в одной карточке: под ценой вылета — цена возврата.
             val pairs = state.tripPairs(state.weekendDepartureDates())
             items(pairs, key = { "p-${it.route.hubIata}-${it.route.arrivalIata}" }) { pair ->
-                TripPairCard(pair, state, dayFmt, longFmt)
-            }
-        } else if (state.mode == SearchMode.WEEKENDS) {
-            items(visible, key = { "r-${it.hubIata}-${it.arrivalIata}" }) { route ->
-                RouteCard(route, state, dayFmt)
+                TripPairCard(pair, state, longFmt)
             }
         } else {
             items(visible, key = { "r-${it.hubIata}-${it.arrivalIata}" }) { route ->
@@ -504,58 +703,70 @@ private fun RouteList(state: UiState, visible: List<PobedaRepository.RoutePrices
     }
 }
 
-/** Карточка-пара: свёрнута по умолчанию (только лучшая цена месяца), по тапу разворачивается
- *  и показывает ВСЕ пары «туда+обратно» месяца — каждая строка со своей суммой. */
+/** Карточка-пара: свёрнута по умолчанию (только лучшая цена месяца), по тапу
+ *  разворачивается и показывает ВСЕ пары «туда+обратно» — каждая со своей суммой. */
 @Composable
 private fun TripPairCard(
     pair: UiState.TripPair,
     state: UiState,
-    dayFmt: DateTimeFormatter,
     longFmt: DateTimeFormatter,
 ) {
     val route = pair.route
     val hubName = PobedaRepository.HUBS.first { it.iata == route.hubIata }.name
-    // Состояние разворота живёт вне данных: новые загрузки его не сбрасывают.
     var expanded by rememberSaveable("${route.hubIata}-${route.arrivalIata}") {
         mutableStateOf(false)
     }
     val combos = pair.combos
 
-    Card(
+    ElevatedCard(
         onClick = { expanded = !expanded },
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
+        shape = RoundedCornerShape(22.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(16.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                // Иконка-«сквознячок» маршрута
+                Surface(
+                    shape = CircleShape,
+                    color = if (expanded) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(42.dp),
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowDropDown,
-                        modifier = Modifier.rotate(if (expanded) 180f else 0f),
-                        contentDescription = if (expanded) "Свернуть" else "Развернуть",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Flight,
+                            null,
+                            Modifier.size(22.dp).rotate(if (expanded) 45f else 0f),
+                            tint = if (expanded) MaterialTheme.colorScheme.onPrimary
+                                   else MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
+                Column(Modifier.weight(1f)) {
                     Text(
                         "$hubName ↔ ${route.arrivalName.ifBlank { route.arrivalIata }}",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                     )
                     state.weather[route.arrivalIata]?.let { w ->
                         Text(
                             "${w.icon} ${formatTemp(w.tempC)} · ${w.description}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.colorScheme.tertiary,
+                            fontWeight = FontWeight.Medium,
                         )
-                    }
+                    } ?: Text(
+                        route.arrivalIata,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 pair.cheapestTotal?.let {
                     Column(horizontalAlignment = Alignment.End) {
@@ -563,33 +774,29 @@ private fun TripPairCard(
                             formatPrice(it),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.ExtraBold,
                         )
                         formatByn(it, state.bynPerRub)?.let { byn ->
                             Text(
                                 "≈ $byn",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         Text(
-                            if (expanded) "лучшая из ${combos.size} пар" else "мин. за месяц · нажми",
+                            if (expanded) "свернуть ▴" else "все выходные ▾",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                } ?: Text(
-                    if (expanded) "свернуть" else "развернуть",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                }
             }
 
             if (!expanded) return@Column
 
-            Spacer(Modifier.height(8.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(10.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(Modifier.height(6.dp))
 
             if (combos.isEmpty()) {
                 Text(
@@ -599,127 +806,62 @@ private fun TripPairCard(
                     modifier = Modifier.padding(vertical = 6.dp),
                 )
             } else {
-                val bestTotal = combos.first().total
+                val bestTotal = combos.minOf { it.total }
                 combos.forEachIndexed { index, combo ->
                     val isBest = combo.total == bestTotal
-                    Row(
-                        Modifier
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (isBest) MaterialTheme.colorScheme.primaryContainer
+                                else Color.Transparent,
+                        modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
+                            .padding(vertical = 2.dp),
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "✈ Туда · ${combo.depDate.format(longFmt).replaceFirstChar { it.uppercase(RU) }}" +
-                                    "   ↵ Обратно · " +
-                                    (if (combo.approxReturn) "≈" else "") +
-                                    combo.retDate.format(longFmt).replaceFirstChar { it.uppercase(RU) },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (isBest) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                "${formatPrice(combo.outboundPrice)} + ${formatPrice(combo.returnPrice)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Text(
-                            "= ${formatPrice(combo.total)}",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = if (isBest) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isBest) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurface,
-                        )
-                        formatByn(combo.total, state.bynPerRub)?.let { byn ->
-                            Text(
-                                "≈ $byn",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isBest) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        Row(
+                            Modifier
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "✈ ${combo.depDate.format(longFmt).replaceFirstChar { it.uppercase(RU) }}" +
+                                        "   →   ↵ " +
+                                        (if (combo.approxReturn) "≈" else "") +
+                                        combo.retDate.format(longFmt).replaceFirstChar { it.uppercase(RU) },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (isBest) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isBest) MaterialTheme.colorScheme.onPrimaryContainer
+                                            else MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    "${formatPrice(combo.outboundPrice)} + ${formatPrice(combo.returnPrice)}" +
+                                        if (isBest) "   · 🔥 лучший вариант" else "",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isBest) MaterialTheme.colorScheme.onPrimaryContainer
+                                            .copy(alpha = 0.75f)
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    formatPrice(combo.total),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = if (isBest) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                    color = if (isBest) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurface,
+                                )
+                                formatByn(combo.total, state.bynPerRub)?.let { byn ->
+                                    Text(
+                                        "≈ $byn",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
                         }
                     }
-                    if (index != combos.lastIndex) HorizontalDivider()
                 }
-            }
-        }
-    }
-}
-
-/** Одна строка: «✈ Туда · Пт 26 дек» ……… «5 499 ₽». */
-@Composable
-private fun PriceLine(
-    label: String,
-    entry: PobedaRepository.PriceEntry?,
-    missingText: String?,
-    highlight: Boolean = false,
-) {
-    Row(
-        Modifier.fillMaxWidth().padding(start = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (entry != null) {
-            Text(
-                formatPrice(entry.price),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (highlight) FontWeight.Bold else FontWeight.Medium,
-                color = if (highlight) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurface,
-            )
-        } else {
-            Text(
-                missingText ?: "—",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-/** Строка возврата с суммой туда+обратно: «↵ Обратно · Вс 27 дек» ……… «6 999 ₽ = 12 498 ₽». */
-@Composable
-private fun ReturnPriceLine(
-    label: String,
-    returnEntry: PobedaRepository.PriceEntry,
-    outboundPrice: Int,
-    isBest: Boolean,
-) {
-    val total = if (outboundPrice > 0) outboundPrice + returnEntry.price else null
-    
-    Row(
-        Modifier.fillMaxWidth().padding(start = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                formatPrice(returnEntry.price),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (isBest) FontWeight.Bold else FontWeight.Medium,
-                color = if (isBest) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurface,
-            )
-            if (total != null) {
-                Text(
-                    "= ${formatPrice(total)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (isBest) FontWeight.Bold else FontWeight.Normal,
-                    color = if (isBest) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }
@@ -735,37 +877,46 @@ private fun RouteCard(
     val cheapest = route.cheapest
     val sorted = route.prices.values.sortedBy { it.depDate }
 
-    Card(
+    ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = RoundedCornerShape(22.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(16.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(42.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Flight,
+                            null,
+                            Modifier.size(22.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
+                Column(Modifier.weight(1f)) {
                     Text(
                         "$hubName → ${route.arrivalName.ifBlank { route.arrivalIata }}",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                     )
                     val w = state.weather[route.arrivalIata]
-                    if (w != null) {
-                        Text(
-                            "${w.icon} ${formatTemp(w.tempC)} · ${w.description}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else {
-                        Text(
-                            "Код: ${route.arrivalIata}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text(
+                        w?.let { "${it.icon} ${formatTemp(it.tempC)} · ${it.description}" }
+                            ?: "Код: ${route.arrivalIata}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (w != null) MaterialTheme.colorScheme.tertiary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = if (w != null) FontWeight.Medium else FontWeight.Normal,
+                    )
                 }
                 cheapest?.let {
                     Column(horizontalAlignment = Alignment.End) {
@@ -773,49 +924,55 @@ private fun RouteCard(
                             formatPrice(it.price),
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.ExtraBold,
                         )
                         formatByn(it.price, state.bynPerRub)?.let { byn ->
                             Text(
                                 "≈ $byn",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
 
-            // Цены по дням — горизонтальная лента
+            // Цены по дням — горизонтальная лента «капсул»
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 sorted.forEach { entry ->
                     val isMin = entry.price == cheapest?.price
                     val date = runCatching { LocalDate.parse(entry.depDate).format(dayFmt) }
                         .getOrDefault(entry.depDate)
-                    ElevatedCard(
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.background(
-                            if (isMin) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surface
-                        ),
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (isMin) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (isMin) MaterialTheme.colorScheme.onPrimary
+                                       else MaterialTheme.colorScheme.onSurface,
                     ) {
                         Column(
-                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            Text(date, style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                date,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
                             Text(
                                 formatPrice(entry.price),
                                 style = MaterialTheme.typography.labelLarge,
-                                fontWeight = if (isMin) FontWeight.Bold else FontWeight.Normal,
+                                fontWeight = if (isMin) FontWeight.ExtraBold else FontWeight.SemiBold,
                             )
+                            formatByn(entry.price, state.bynPerRub)?.let {
+                                Text("≈ $it", style = MaterialTheme.typography.labelSmall)
+                            }
                         }
                     }
                 }
@@ -841,26 +998,5 @@ private fun formatByn(price: Int, bynPerRub: Double?): String? {
     return when {
         byn >= 100 -> String.format(RU, "%,d", byn.toInt()).replace(',', ' ') + " Br"
         else -> String.format(RU, "%.2f", byn).replace('.', ',') + " Br"
-    }
-}
-
-/** «5 499 ₽» и ниже серым «≈ 217 Br», если курс доступен. */
-@Composable
-private fun PriceWithByn(
-    price: Int,
-    bynPerRub: Double?,
-    style: androidx.compose.ui.text.TextStyle,
-    weight: FontWeight,
-    color: Color,
-) {
-    Column(horizontalAlignment = Alignment.End) {
-        Text(formatPrice(price), style = style, fontWeight = weight, color = color)
-        formatByn(price, bynPerRub)?.let {
-            Text(
-                "≈ $it",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 }

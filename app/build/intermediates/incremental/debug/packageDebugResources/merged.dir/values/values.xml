@@ -3,6 +3,8 @@
     <color name="ic_launcher_background">#E4232B</color>
     <string name="app_name">Pobeda Monitor</string>
     <style name="Theme.PobedaMonitor" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">#E4232B</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 </resources>
