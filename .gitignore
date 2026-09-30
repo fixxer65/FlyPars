@@ -1,7 +1,12 @@
 # Gradle
-.gradle/node_modules/
+.gradle/
+
+# Android Build
+build/
+*.apk
+
+# Kotlin
+*.classnode_modules/
 .next/
 dist/
-build/
 *.log
-node_modules/

@@ -549,14 +549,15 @@ private fun TripPairCard(
                             modifier = Modifier.padding(start = 12.dp, top = 2.dp),
                         )
                     } else {
+                        val outboundPrice = leg.outbound?.price ?: 0
                         val minRet = leg.returns.minOf { it.second.price }
                         leg.returns.forEach { (date, entry) ->
-                            PriceLine(
+                            ReturnPriceLine(
                                 label = "↵ Обратно · " + date.format(longFmt)
                                     .replaceFirstChar { it.uppercase(RU) },
-                                entry = entry,
-                                missingText = null,
-                                highlight = entry.price == minRet,
+                                returnEntry = entry,
+                                outboundPrice = outboundPrice,
+                                isBest = entry.price == minRet && outboundPrice > 0,
                             )
                         }
                     }
@@ -599,6 +600,47 @@ private fun PriceLine(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/** Строка возврата с суммой туда+обратно: «↵ Обратно · Вс 27 дек» ……… «6 999 ₽ = 12 498 ₽». */
+@Composable
+private fun ReturnPriceLine(
+    label: String,
+    returnEntry: PobedaRepository.PriceEntry,
+    outboundPrice: Int,
+    isBest: Boolean,
+) {
+    val total = if (outboundPrice > 0) outboundPrice + returnEntry.price else null
+    
+    Row(
+        Modifier.fillMaxWidth().padding(start = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                formatPrice(returnEntry.price),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (isBest) FontWeight.Bold else FontWeight.Medium,
+                color = if (isBest) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface,
+            )
+            if (total != null) {
+                Text(
+                    "= ${formatPrice(total)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isBest) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isBest) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
