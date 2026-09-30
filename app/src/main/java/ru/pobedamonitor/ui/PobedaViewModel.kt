@@ -13,6 +13,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import ru.pobedamonitor.data.CurrencyRepository
 import ru.pobedamonitor.data.PobedaRepository
+import ru.pobedamonitor.data.WeatherRepository
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -50,6 +51,8 @@ data class UiState(
     val rateSource: String? = null,
     /** Ошибка загрузки курса (показывается в шапке, если курс недоступен). */
     val rateError: String? = null,
+    /** Погода в городах прилёта: IATA -> Weather. */
+    val weather: Map<String, WeatherRepository.Weather> = emptyMap(),
 ) {
     val toDate: LocalDate get() = fromDate.plusDays((daysCount - 1).coerceAtLeast(0).toLong())
 
@@ -331,6 +334,15 @@ class PobedaViewModel : ViewModel() {
                         lastUpdated = java.time.LocalDateTime.now()
                             .format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")),
                     )
+                }
+
+                // Погода в городах прилёта (параллельно загрузке цен, не блокирует UI).
+                val destCodes = result.routes.map { it.arrivalIata }.distinct()
+                if (destCodes.isNotEmpty()) {
+                    val w = WeatherRepository.fetchWeather(destCodes)
+                    if (w.isNotEmpty()) {
+                        _state.update { it.copy(weather = it.weather + w) }
+                    }
                 }
             } catch (e: Exception) {
                 _state.update {

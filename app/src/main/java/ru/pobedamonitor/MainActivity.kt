@@ -39,6 +39,7 @@ import java.time.LocalDate
 
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.roundToInt
 
 private val RU = Locale("ru")
 
@@ -548,6 +549,13 @@ private fun TripPairCard(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
+                    state.weather[route.arrivalIata]?.let { w ->
+                        Text(
+                            "${w.icon} ${formatTemp(w.tempC)} · ${w.description}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 pair.cheapestTotal?.let {
                     Column(horizontalAlignment = Alignment.End) {
@@ -744,11 +752,20 @@ private fun RouteCard(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    Text(
-                        "Код: ${route.arrivalIata}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    val w = state.weather[route.arrivalIata]
+                    if (w != null) {
+                        Text(
+                            "${w.icon} ${formatTemp(w.tempC)} · ${w.description}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            "Код: ${route.arrivalIata}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 cheapest?.let {
                     Column(horizontalAlignment = Alignment.End) {
@@ -809,6 +826,13 @@ private fun RouteCard(
 
 private fun formatPrice(price: Int): String =
     String.format(Locale("ru"), "%,d", price).replace(',', ' ') + " ₽"
+
+/** Температура в формате «+18°C» / «−5°C». */
+private fun formatTemp(tempC: Double): String {
+    val t = tempC.roundToInt()
+    val sign = if (t > 0) "+" else ""
+    return "$sign${t}°C".replace('-', '−')
+}
 
 /** Конвертация цены в белорусские рубли по курсу [bynPerRub] (RUB -> BYN). */
 private fun formatByn(price: Int, bynPerRub: Double?): String? {
