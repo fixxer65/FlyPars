@@ -148,7 +148,8 @@ class PobedaRepository {
             val minOffer = obj.optJSONObject("minOffer") ?: continue
             val price = minOffer.optInt("price", -1)
             if (price <= 0) continue
-            val depDate = minOffer.optString("depDate").ifBlank { continue }
+            val depDate = minOffer.optString("depDate")
+            if (depDate.isBlank()) continue
             val entry = PriceEntry(
                 depDate = depDate,
                 price = price,
