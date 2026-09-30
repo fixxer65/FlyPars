@@ -137,9 +137,9 @@ class PobedaRepository {
     }
 
     /**
-     * Обратные направления: с какой даты и по какой цене можно улететь из
-     * города [arrivalIata] обратно в хаб [hubIata] (например, Стамбул → Москва).
-     * Тот же API best-offers, но в параметре departure указываем город назначения.
+     * Обратные цены для одного направления arrival -> hub на список дат [dates].
+     * Делает по одному запросу на дату (одиночный dates[0] — самый надёжный режим
+     * API) параллельно, возвращает карту дата ISO -> цена.
      */
     suspend fun fetchReturnPrices(
         hubIata: String,
@@ -153,17 +153,32 @@ class PobedaRepository {
                         val json = httpGetJson(buildUrl(arrivalIata, date))
                         parseDay(hubIata, json)
                             .firstOrNull { it.arrivalIata == hubIata }
-                            ?.prices?.get(date.format(isoFmt))
+                            ?.prices?.values?.minByOrNull { it.price }
                     } catch (e: Exception) {
                         null
                     }
                 }
-            }.awaitAll()
-        }.filterNotNull().associateBy { it.depDate }
+            }.awaitAll().filterNotNull().associateBy { it.depDate }
+        }
     }
 
     private fun buildUrl(hub: String, date: LocalDate): String =
         "$API_BASE?locale=ru&departure%5B0%5D=$hub&dates%5B0%5D=${date.format(isoFmt)}"
+
+    /**
+     * Запрашивает все направления из [departureIata] на список дат [dates] одним
+     * запросом (API поддерживает несколько параметров dates[N]). Используется для
+     * обратных билетов: ответ содержит minOffer на каждую запрошенную дату.
+     */
+    suspend fun fetchDirectionJson(departureIata: String, dates: List<LocalDate>): JSONArray =
+        withContext(Dispatchers.IO) {
+            val sb = StringBuilder(API_BASE)
+                .append("?locale=ru&departure%5B0%5D=").append(departureIata)
+            dates.forEachIndexed { idx, d ->
+                sb.append("&dates%5B").append(idx).append("%5D=").append(d.format(isoFmt))
+            }
+            httpGetJson(sb.toString())
+        }
 
     private fun httpGetJson(url: String): JSONArray {
         val request = Request.Builder()

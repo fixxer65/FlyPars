@@ -540,7 +540,7 @@ private fun TripPairCard(
                         entry = leg.outbound,
                         missingText = "нет тарифа",
                     )
-                    // --- Обратно (сразу под ценой вылета) ---
+                    // --- Обратно (сразу под ценой вылета, у каждой строки своя сумма) ---
                     if (leg.returns.isEmpty()) {
                         Text(
                             "↵ Обратно: нет тарифов на выбранные дни",
@@ -550,11 +550,12 @@ private fun TripPairCard(
                         )
                     } else {
                         val outboundPrice = leg.outbound?.price ?: 0
-                        val minRet = leg.returns.minOf { it.second.price }
-                        leg.returns.forEach { (date, entry) ->
+                        val minRet = leg.returns.minOf { it.second.first.price }
+                        leg.returns.forEach { (date, pairEntry) ->
+                            val (entry, approx) = pairEntry
                             ReturnPriceLine(
-                                label = "↵ Обратно · " + date.format(longFmt)
-                                    .replaceFirstChar { it.uppercase(RU) },
+                                label = "↵ Обратно · " + (if (approx) "≈" else "") +
+                                    date.format(longFmt).replaceFirstChar { it.uppercase(RU) },
                                 returnEntry = entry,
                                 outboundPrice = outboundPrice,
                                 isBest = entry.price == minRet && outboundPrice > 0,
