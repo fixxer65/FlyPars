@@ -12,11 +12,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -486,7 +489,8 @@ private fun RouteList(state: UiState, visible: List<PobedaRepository.RoutePrices
     }
 }
 
-/** Карточка-пара: маршруты туда и сразу под ними цены обратных билетов по тем же датам. */
+/** Карточка-пара: свёрнута по умолчанию (только лучшая цена месяца), по тапу разворачивается
+ *  и показывает ВСЕ пары «туда+обратно» месяца — каждая строка со своей суммой. */
 @Composable
 private fun TripPairCard(
     pair: UiState.TripPair,
@@ -496,8 +500,14 @@ private fun TripPairCard(
 ) {
     val route = pair.route
     val hubName = PobedaRepository.HUBS.first { it.iata == route.hubIata }.name
+    // Состояние разворота живёт вне данных: новые загрузки его не сбрасывают.
+    var expanded by rememberSaveable("${route.hubIata}-${route.arrivalIata}") {
+        mutableStateOf(false)
+    }
+    val combos = pair.combos
 
     Card(
+        onClick = { expanded = !expanded },
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
@@ -508,11 +518,23 @@ private fun TripPairCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    "$hubName ↔ ${route.arrivalName.ifBlank { route.arrivalIata }}",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                Row(
+                    Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        modifier = Modifier.rotate(if (expanded) 180f else 0f),
+                        contentDescription = if (expanded) "Свернуть" else "Развернуть",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        "$hubName ↔ ${route.arrivalName.ifBlank { route.arrivalIata }}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 pair.cheapestTotal?.let {
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
@@ -522,48 +544,68 @@ private fun TripPairCard(
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            "туда + обратно",
+                            if (expanded) "лучшая из ${combos.size} пар" else "мин. за месяц · нажми",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                }
+                } ?: Text(
+                    if (expanded) "свернуть" else "развернуть",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Spacer(Modifier.height(8.dp))
 
-            pair.legs.forEach { leg ->
-                Column(Modifier.padding(vertical = 5.dp)) {
-                    // --- Туда ---
-                    PriceLine(
-                        label = "✈ Туда · " + leg.outboundDate.format(longFmt)
-                            .replaceFirstChar { it.uppercase(RU) },
-                        entry = leg.outbound,
-                        missingText = "нет тарифа",
-                    )
-                    // --- Обратно (сразу под ценой вылета, у каждой строки своя сумма) ---
-                    if (leg.returns.isEmpty()) {
-                        Text(
-                            "↵ Обратно: нет тарифов на выбранные дни",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 12.dp, top = 2.dp),
-                        )
-                    } else {
-                        val outboundPrice = leg.outbound?.price ?: 0
-                        val minRet = leg.returns.minOf { it.second.first.price }
-                        leg.returns.forEach { (date, pairEntry) ->
-                            val (entry, approx) = pairEntry
-                            ReturnPriceLine(
-                                label = "↵ Обратно · " + (if (approx) "≈" else "") +
-                                    date.format(longFmt).replaceFirstChar { it.uppercase(RU) },
-                                returnEntry = entry,
-                                outboundPrice = outboundPrice,
-                                isBest = entry.price == minRet && outboundPrice > 0,
+            if (!expanded) return@Column
+
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(4.dp))
+
+            if (combos.isEmpty()) {
+                Text(
+                    "Нет доступных пар туда+обратно на выбранные дни.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 6.dp),
+                )
+            } else {
+                val bestTotal = combos.first().total
+                combos.forEachIndexed { index, combo ->
+                    val isBest = combo.total == bestTotal
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "✈ Туда · ${combo.depDate.format(longFmt).replaceFirstChar { it.uppercase(RU) }}" +
+                                    "   ↵ Обратно · " +
+                                    (if (combo.approxReturn) "≈" else "") +
+                                    combo.retDate.format(longFmt).replaceFirstChar { it.uppercase(RU) },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (isBest) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "${formatPrice(combo.outboundPrice)} + ${formatPrice(combo.returnPrice)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        Text(
+                            "= ${formatPrice(combo.total)}",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = if (isBest) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isBest) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface,
+                        )
                     }
+                    if (index != combos.lastIndex) HorizontalDivider()
                 }
-                if (leg !== pair.legs.last()) HorizontalDivider(Modifier.padding(vertical = 2.dp))
             }
         }
     }

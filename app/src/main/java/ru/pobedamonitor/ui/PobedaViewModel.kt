@@ -99,13 +99,29 @@ data class UiState(
             val returns: List<Pair<LocalDate, Pair<PobedaRepository.PriceEntry, Boolean>>>,
         )
 
-        /** Минимальная суммарная цена пары туда+обратно. */
+        /** Все комбинации «вылет + возврат» с ценой каждой пары. */
+        data class Combo(
+            val depDate: LocalDate,
+            val retDate: LocalDate,
+            val approxReturn: Boolean,
+            val outboundPrice: Int,
+            val returnPrice: Int,
+        ) {
+            val total: Int get() = outboundPrice + returnPrice
+        }
+
+        /** Полный список пар туда+обратно для этого направления (все даты × все возвраты). */
+        val combos: List<Combo>
+            get() = legs.flatMap { leg ->
+                val o = leg.outbound ?: return@flatMap emptyList()
+                leg.returns.map { (rd, pe) ->
+                    Combo(leg.outboundDate, rd, pe.second, o.price, pe.first.price)
+                }
+            }.sortedBy { it.total }
+
+        /** Минимальная суммарная цена пары туда+обратно по всем строкам карточки. */
         val cheapestTotal: Int?
-            get() = legs.mapNotNull { leg ->
-                val o = leg.outbound ?: return@mapNotNull null
-                val r = leg.returns.minByOrNull { it.second.first.price }?.second?.first ?: return@mapNotNull null
-                o.price + r.price
-            }.minOrNull()
+            get() = combos.minOfOrNull { it.total }
     }
 
     /**
