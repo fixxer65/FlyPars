@@ -73,7 +73,7 @@ fun MainScreen(vm: PobedaViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-        TopAppBar(state = state, onRefresh = vm::refresh)
+        TopAppBar(state = state, onRefresh = { vm.refreshRate(); vm.refresh() })
         FilterRow(state = state, vm = vm)
         DestinationPicker(state = state, vm = vm)
         Divider(modifier = Modifier.padding(vertical = 8.dp))
@@ -101,6 +101,20 @@ private fun TopAppBar(state: UiState, onRefresh: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                // Курс RUB -> BYN для конвертации цен в белорусские рубли
+                val rateText = when {
+                    state.bynPerRub != null -> {
+                        val src = state.rateSource?.let { " · $it" } ?: ""
+                        "Курс: 1 RUB = ${String.format(RU, "%.4f", state.bynPerRub)} BYN$src"
+                    }
+                    state.rateError != null -> "Курс BYN недоступен (${state.rateError})"
+                    else -> "Загружаем курс BYN…"
+                }
+                Text(
+                    rateText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
         actions = {
@@ -479,11 +493,11 @@ private fun RouteList(state: UiState, visible: List<PobedaRepository.RoutePrices
             }
         } else if (state.mode == SearchMode.WEEKENDS) {
             items(visible, key = { "r-${it.hubIata}-${it.arrivalIata}" }) { route ->
-                RouteCard(route, dayFmt)
+                RouteCard(route, state, dayFmt)
             }
         } else {
             items(visible, key = { "r-${it.hubIata}-${it.arrivalIata}" }) { route ->
-                RouteCard(route, dayFmt)
+                RouteCard(route, state, dayFmt)
             }
         }
     }
@@ -543,6 +557,13 @@ private fun TripPairCard(
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold,
                         )
+                        formatByn(it, state.bynPerRub)?.let { byn ->
+                            Text(
+                                "≈ $byn",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                         Text(
                             if (expanded) "лучшая из ${combos.size} пар" else "мин. за месяц · нажми",
                             style = MaterialTheme.typography.labelSmall,
@@ -603,6 +624,14 @@ private fun TripPairCard(
                             color = if (isBest) MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.onSurface,
                         )
+                        formatByn(combo.total, state.bynPerRub)?.let { byn ->
+                            Text(
+                                "≈ $byn",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isBest) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     if (index != combos.lastIndex) HorizontalDivider()
                 }
@@ -689,7 +718,11 @@ private fun ReturnPriceLine(
 }
 
 @Composable
-private fun RouteCard(route: PobedaRepository.RoutePrices, dayFmt: DateTimeFormatter) {
+private fun RouteCard(
+    route: PobedaRepository.RoutePrices,
+    state: UiState,
+    dayFmt: DateTimeFormatter,
+) {
     val hubName = PobedaRepository.HUBS.first { it.iata == route.hubIata }.name
     val cheapest = route.cheapest
     val sorted = route.prices.values.sortedBy { it.depDate }
@@ -718,12 +751,21 @@ private fun RouteCard(route: PobedaRepository.RoutePrices, dayFmt: DateTimeForma
                     )
                 }
                 cheapest?.let {
-                    Text(
-                        formatPrice(it.price),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            formatPrice(it.price),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        formatByn(it.price, state.bynPerRub)?.let { byn ->
+                            Text(
+                                "≈ $byn",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
                 }
             }
 
@@ -767,3 +809,34 @@ private fun RouteCard(route: PobedaRepository.RoutePrices, dayFmt: DateTimeForma
 
 private fun formatPrice(price: Int): String =
     String.format(Locale("ru"), "%,d", price).replace(',', ' ') + " ₽"
+
+/** Конвертация цены в белорусские рубли по курсу [bynPerRub] (RUB -> BYN). */
+private fun formatByn(price: Int, bynPerRub: Double?): String? {
+    if (bynPerRub == null || bynPerRub <= 0) return null
+    val byn = price * bynPerRub
+    return when {
+        byn >= 100 -> String.format(RU, "%,d", byn.toInt()).replace(',', ' ') + " Br"
+        else -> String.format(RU, "%.2f", byn).replace('.', ',') + " Br"
+    }
+}
+
+/** «5 499 ₽» и ниже серым «≈ 217 Br», если курс доступен. */
+@Composable
+private fun PriceWithByn(
+    price: Int,
+    bynPerRub: Double?,
+    style: androidx.compose.ui.text.TextStyle,
+    weight: FontWeight,
+    color: Color,
+) {
+    Column(horizontalAlignment = Alignment.End) {
+        Text(formatPrice(price), style = style, fontWeight = weight, color = color)
+        formatByn(price, bynPerRub)?.let {
+            Text(
+                "≈ $it",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}

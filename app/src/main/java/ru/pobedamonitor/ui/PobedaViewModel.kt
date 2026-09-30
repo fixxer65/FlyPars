@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import ru.pobedamonitor.data.CurrencyRepository
 import ru.pobedamonitor.data.PobedaRepository
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -43,6 +44,12 @@ data class UiState(
     val routes: List<PobedaRepository.RoutePrices> = emptyList(),
     val errors: List<String> = emptyList(),
     val lastUpdated: String? = null,
+    /** Курс RUB -> BYN (для конвертации цен), null = ещё не загружен. */
+    val bynPerRub: Double? = null,
+    /** Название источника курса (например, «Сбер Банк»). */
+    val rateSource: String? = null,
+    /** Ошибка загрузки курса (показывается в шапке, если курс недоступен). */
+    val rateError: String? = null,
 ) {
     val toDate: LocalDate get() = fromDate.plusDays((daysCount - 1).coerceAtLeast(0).toLong())
 
@@ -185,11 +192,27 @@ data class UiState(
 class PobedaViewModel : ViewModel() {
 
     private val repository = PobedaRepository()
+    private val currencyRepository = CurrencyRepository()
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var fetchJob: Job? = null
+    private var rateJob: Job? = null
+
+    /** Загружает курс RUB->BYN (Сбер Банк -> НЦБ РБ -> ЦБ РФ). */
+    fun refreshRate() {
+        if (rateJob?.isActive == true) return
+        rateJob = viewModelScope.launch {
+            val res = currencyRepository.fetchRate()
+            _state.update { s ->
+                res.fold(
+                    onSuccess = { r -> s.copy(bynPerRub = r.bynPerRub, rateSource = r.source, rateError = null) },
+                    onFailure = { e -> s.copy(rateError = e.message ?: "Курс недоступен") },
+                )
+            }
+        }
+    }
 
     fun toggleHub(iata: String) {
         _state.update { s ->
@@ -318,6 +341,7 @@ class PobedaViewModel : ViewModel() {
     }
 
     init {
+        refreshRate()
         refresh()
     }
 }
