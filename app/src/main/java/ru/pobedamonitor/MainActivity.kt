@@ -51,6 +51,8 @@ import ru.pobedamonitor.ui.PobedaMonitorTheme
 import ru.pobedamonitor.ui.PobedaViewModel
 import ru.pobedamonitor.ui.SearchMode
 import ru.pobedamonitor.ui.UiState
+import ru.pobedamonitor.ui.headerBrush
+import ru.pobedamonitor.ui.screenBackgroundBrush
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -79,33 +81,62 @@ fun MainScreen(vm: PobedaViewModel = viewModel()) {
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(scroll)
 
     Scaffold(
+        modifier = Modifier.background(screenBackgroundBrush()),
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
         topBar = {
-            LargeTopAppBar(
-                title = { Text("Победа · цены", fontWeight = FontWeight.ExtraBold) },
-                scrollBehavior = scrollBehavior,
-                colors = TopAppBarDefaults.largeTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-                actions = {
-                    // Кнопка обновления — круглая, в цвет шапки
-                    IconButton(onClick = { vm.refreshRate(); vm.refresh() }, enabled = !state.isLoading) {
-                        if (state.isLoading) {
-                            CircularProgressIndicator(
-                                Modifier.size(22.dp),
-                                strokeWidth = 2.5.dp,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Обновить",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                            )
-                        }
+            Surface(
+                shape = RoundedCornerShape(bottomStartPercent = 30, bottomEndPercent = 30),
+                color = Color.Transparent,
+                shadowElevation = 6.dp,
+            ) {
+                Box(Modifier.background(headerBrush())) {
+                    LargeTopAppBar(
+                        title = {
+                            Column {
+                                Text(
+                                    "Pobeda · цены",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White,
+                                )
+                                Text(
+                                    "авиамонитор Москва / Минск",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White.copy(alpha = 0.75f),
+                                )
+                            }
+                        },
+                        expandedHeight = 110.dp,
+                        colors = TopAppBarDefaults.largeTopAppBarColors(
+                            containerColor = Color.Transparent,
+                            scrolledContainerColor = Color.Transparent,
+                            titleContentColor = Color.White,
+                        ),
+                        scrollBehavior = scrollBehavior,
+                    )
+                }
+            }
+        },
+        floatingActionButton = {
+            // Большая «пухлая» кнопка обновления с тенью
+            ExtendedFloatingActionButton(
+                onClick = { vm.refreshRate(); vm.refresh() },
+                expanded = !state.isLoading,
+                icon = {
+                    if (state.isLoading) {
+                        CircularProgressIndicator(
+                            Modifier.size(20.dp),
+                            strokeWidth = 2.5.dp,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    } else {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
                     }
                 },
+                text = { Text("Обновить") },
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                shape = CircleShape,
             )
         },
     ) { innerPadding ->
@@ -113,7 +144,6 @@ fun MainScreen(vm: PobedaViewModel = viewModel()) {
             Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(MaterialTheme.colorScheme.background)
                 .padding(horizontal = 14.dp),
         ) {
             Spacer(Modifier.height(6.dp))
@@ -181,10 +211,10 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        border = CardDefaults.outlinedCardBorder(),
+        shape = RoundedCornerShape(26.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.padding(14.dp)) {
             ModeTabs(state, vm)
@@ -206,18 +236,21 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
 @Composable
 private fun ModeTabs(state: UiState, vm: PobedaViewModel) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
         Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            SearchMode.entries.forEachIndexed { index, mode ->
+            SearchMode.entries.forEach { mode ->
                 val selected = state.mode == mode
-                val label = if (mode == SearchMode.ALL_DAYS) "Все дни" else "Выходные в месяце"
+                val text = when (mode) {
+                    SearchMode.ALL_DAYS -> "📅  Все дни"
+                    SearchMode.WEEKENDS -> "🌤  Выходные"
+                }
                 Surface(
                     onClick = {
                         if (!selected) { vm.setMode(mode); vm.refresh() }
                     },
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     color = if (selected) MaterialTheme.colorScheme.primary
                             else Color.Transparent,
                     contentColor = if (selected) MaterialTheme.colorScheme.onPrimary
@@ -225,11 +258,11 @@ private fun ModeTabs(state: UiState, vm: PobedaViewModel) {
                     modifier = Modifier.weight(1f),
                 ) {
                     Box(
-                        Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                        Modifier.padding(horizontal = 10.dp, vertical = 11.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            label,
+                            text,
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                             maxLines = 1,
@@ -628,15 +661,19 @@ private fun LoadingBlock() {
             Icon(
                 Icons.Default.Flight,
                 null,
-                Modifier.size(56.dp),
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
             )
-            Spacer(Modifier.height(12.dp))
-            CircularProgressIndicator()
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
+            CircularProgressIndicator(
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.primaryContainer,
+            )
+            Spacer(Modifier.height(14.dp))
             Text(
                 "Загружаем цены с flypobeda.ru…",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
     }
@@ -670,7 +707,7 @@ private fun RouteList(
         modifier = if (scrollBehavior != null)
             Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
         else Modifier,
-        contentPadding = PaddingValues(top = 2.dp, bottom = 28.dp),
+        contentPadding = PaddingValues(top = 2.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (state.errors.isNotEmpty()) {
@@ -723,8 +760,10 @@ private fun TripPairCard(
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
-        shape = RoundedCornerShape(22.dp),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(26.dp),
+        elevation = CardDefaults.elevatedCardElevation(
+            defaultElevation = if (expanded) 5.dp else 2.dp,
+        ),
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(
@@ -737,13 +776,13 @@ private fun TripPairCard(
                     shape = CircleShape,
                     color = if (expanded) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(42.dp),
+                    modifier = Modifier.size(44.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             Icons.Default.Flight,
                             null,
-                            Modifier.size(22.dp).rotate(if (expanded) 45f else 0f),
+                            Modifier.size(23.dp).rotate(if (expanded) 45f else 0f),
                             tint = if (expanded) MaterialTheme.colorScheme.onPrimary
                                    else MaterialTheme.colorScheme.onPrimaryContainer,
                         )
@@ -770,19 +809,31 @@ private fun TripPairCard(
                 }
                 pair.cheapestTotal?.let {
                     Column(horizontalAlignment = Alignment.End) {
-                        Text(
-                            formatPrice(it),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.ExtraBold,
-                        )
-                        formatByn(it, state.bynPerRub)?.let { byn ->
-                            Text(
-                                "≈ $byn",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.End,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            ) {
+                                Text(
+                                    formatPrice(it),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    fontWeight = FontWeight.ExtraBold,
+                                )
+                                formatByn(it, state.bynPerRub)?.let { byn ->
+                                    Text(
+                                        "≈ $byn",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                            .copy(alpha = 0.8f),
+                                    )
+                                }
+                            }
                         }
+                        Spacer(Modifier.height(3.dp))
                         Text(
                             if (expanded) "свернуть ▴" else "все выходные ▾",
                             style = MaterialTheme.typography.labelSmall,
@@ -810,16 +861,22 @@ private fun TripPairCard(
                 combos.forEachIndexed { index, combo ->
                     val isBest = combo.total == bestTotal
                     Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = if (isBest) MaterialTheme.colorScheme.primaryContainer
-                                else Color.Transparent,
+                        shape = RoundedCornerShape(16.dp),
+                        color = when {
+                            isBest -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                            index % 2 == 1 -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                            else -> Color.Transparent
+                        },
+                        border = if (isBest) androidx.compose.foundation.BorderStroke(
+                            1.5.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.6f))
+                            else null,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 2.dp),
+                            .padding(vertical = 3.dp),
                     ) {
                         Row(
                             Modifier
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -831,14 +888,14 @@ private fun TripPairCard(
                                         combo.retDate.format(longFmt).replaceFirstChar { it.uppercase(RU) },
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = if (isBest) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isBest) MaterialTheme.colorScheme.onPrimaryContainer
+                                    color = if (isBest) MaterialTheme.colorScheme.onSecondaryContainer
                                             else MaterialTheme.colorScheme.onSurface,
                                 )
                                 Text(
                                     "${formatPrice(combo.outboundPrice)} + ${formatPrice(combo.returnPrice)}" +
                                         if (isBest) "   · 🔥 лучший вариант" else "",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (isBest) MaterialTheme.colorScheme.onPrimaryContainer
+                                    color = if (isBest) MaterialTheme.colorScheme.onSecondaryContainer
                                             .copy(alpha = 0.75f)
                                             else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -848,7 +905,7 @@ private fun TripPairCard(
                                     formatPrice(combo.total),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = if (isBest) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                    color = if (isBest) MaterialTheme.colorScheme.primary
+                                    color = if (isBest) MaterialTheme.colorScheme.secondary
                                             else MaterialTheme.colorScheme.onSurface,
                                 )
                                 formatByn(combo.total, state.bynPerRub)?.let { byn ->
@@ -879,7 +936,7 @@ private fun RouteCard(
 
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(26.dp),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
     ) {
         Column(Modifier.padding(16.dp)) {
@@ -891,13 +948,13 @@ private fun RouteCard(
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(42.dp),
+                    modifier = Modifier.size(44.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             Icons.Default.Flight,
                             null,
-                            Modifier.size(22.dp),
+                            Modifier.size(23.dp),
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     }
@@ -919,19 +976,28 @@ private fun RouteCard(
                     )
                 }
                 cheapest?.let {
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(
-                            formatPrice(it.price),
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.ExtraBold,
-                        )
-                        formatByn(it.price, state.bynPerRub)?.let { byn ->
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                        ) {
                             Text(
-                                "≈ $byn",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                formatPrice(it.price),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                fontWeight = FontWeight.ExtraBold,
                             )
+                            formatByn(it.price, state.bynPerRub)?.let { byn ->
+                                Text(
+                                    "≈ $byn",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        .copy(alpha = 0.8f),
+                                )
+                            }
                         }
                     }
                 }
