@@ -31,6 +31,9 @@ enum class SortOrder { NONE, ASC, DESC }
 /** Фильтр списка: все направления / только избранные. */
 enum class ListFilter { ALL, FAVORITES }
 
+/** v2.15: фильтр типа рейса на карточках направлений. */
+enum class DirectFilter { ALL, DIRECT_ONLY, TRANSFER_ONLY }
+
 /** Состояние экрана монитора цен. */
 data class UiState(
     val hubsSelected: Set<String> = setOf("MOW", "MSQ"),
@@ -86,6 +89,8 @@ data class UiState(
     val targetRoundTrips: Set<String> = emptySet(),
     /** v2.12: интервал фоновой проверки цен, часов (1 / 6 / 24). */
     val checkIntervalHours: Int = ru.pobedamonitor.data.FavoritesRepository.DEFAULT_CHECK_HOURS,
+    /** v2.15: фильтр типа рейса — все / только прямые / только стыковочные. */
+    val directFilter: DirectFilter = DirectFilter.ALL,
 ) {
     val toDate: LocalDate get() = fromDate.plusDays((daysCount - 1).coerceAtLeast(0).toLong())
 
@@ -133,6 +138,14 @@ data class UiState(
         else routes.filter { it.arrivalIata in destinationsSelected }
         if (listFilter == ListFilter.FAVORITES) {
             filtered = filtered.filter { keyFor(it) in favorites }
+        }
+        // v2.15: фильтр «прямые / стыковочные» по лучшей цене направления.
+        when (directFilter) {
+            DirectFilter.ALL -> Unit
+            DirectFilter.DIRECT_ONLY ->
+                filtered = filtered.filter { it.cheapest?.isDirect == true }
+            DirectFilter.TRANSFER_ONLY ->
+                filtered = filtered.filter { e -> val c = e.cheapest; c != null && !c.isDirect }
         }
         return when (sortOrder) {
             SortOrder.NONE -> filtered
@@ -415,6 +428,11 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
     /** Переключить фильтр «только избранные». */
     fun setListFilter(filter: ListFilter) {
         _state.update { it.copy(listFilter = filter) }
+    }
+
+    /** v2.15: фильтр типа рейса (все / только прямые / только стыковочные). */
+    fun setDirectFilter(filter: DirectFilter) {
+        _state.update { it.copy(directFilter = filter) }
     }
 
     /** Включить/выключить уведомления «цена упала» (v2.4). */

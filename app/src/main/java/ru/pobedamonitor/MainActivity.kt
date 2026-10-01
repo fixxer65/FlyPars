@@ -47,6 +47,9 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -75,6 +78,7 @@ import ru.pobedamonitor.data.PobedaRepository
 import ru.pobedamonitor.ui.PobedaMonitorTheme
 import ru.pobedamonitor.ui.PobedaViewModel
 import ru.pobedamonitor.ui.SearchMode
+import ru.pobedamonitor.ui.DirectFilter
 import ru.pobedamonitor.ui.ListFilter
 import ru.pobedamonitor.ui.SortOrder
 import ru.pobedamonitor.ui.UiState
@@ -319,21 +323,19 @@ private fun RateAndUpdatedChip(state: UiState) {
 }
 
 /** Все элементы управления аккуратно собраны в одной «тонированной» карточке.
- *  Карточка сворачивается по тапу на заголовок, чтобы оставить больше места ценам. */
+ *  v2.15: компактный двухуровневый вид — заголовок с сутью фильтров, лента ключевых
+ *  чипов (режим / избранное / тип рейса / дата / сортировка / «⚙ Ещё»), а под «Ещё»
+ *  прячутся хабы, направления, даты выходных и уведомления. Весь функционал сохранён. */
 @Composable
 private fun FilterCard(state: UiState, vm: PobedaViewModel) {
     var expanded by rememberSaveable { mutableStateOf(false) }
 
-    // v2.9: ограничиваем высоту развёрнутой карточки ~70% экрана (заголовок крупный TopAppBar
-    // схлопывается при прокрутке списка, так что запас по высоте есть). Внутри — verticalScroll.
+    // v2.9: ограничиваем высоту развёрнутой карточки ~70% экрана. Внутри — verticalScroll.
     val maxHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.70f
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            // v2.9: высота развёрнутой карточки ограничена (высота экрана минус шапка,
-            // курс и отступы) — внутренний скролл параметров включается ровно тогда,
-            // когда они не помещаются, и никогда не «съедает» место у списка цен.
             .heightIn(max = maxHeight)
             .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
         shape = RoundedCornerShape(26.dp),
@@ -341,73 +343,237 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
         elevation = CardDefaults.cardElevation(defaultElevation = if (expanded) 4.dp else 2.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        // Заголовок-переключатель: всегда виден, показывает суть выбранных фильтров
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Default.Tune,
-                null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "Параметры поиска",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            // Заголовок-переключатель: всегда виден, показывает суть выбранных фильтров
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.Tune,
+                    null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
                 )
-                Text(
-                    filterSummary(state),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Параметры поиска",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        filterSummary(state),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                }
+                Icon(
+                    Icons.Default.ExpandMore,
+                    if (expanded) "Свернуть" else "Развернуть",
+                    modifier = Modifier.rotate(if (expanded) 180f else 0f),
+                    tint = MaterialTheme.colorScheme.primary,
                 )
             }
-            Icon(
-                Icons.Default.ExpandMore,
-                if (expanded) "Свернуть" else "Развернуть",
-                modifier = Modifier.rotate(if (expanded) 180f else 0f),
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        }
 
-        if (expanded) {
-            // v2.9: список параметров вырос (режимы, избранное, хабы, пунктры, сортировка,
-            // даты выходных с обратными рейсами, уведомления) — делаем его прокручиваемым,
-            // иначе в режиме «туда и обратно» нижние элементы не достать скроллом страницы.
-            Column(
-                Modifier
-                    .verticalScroll(rememberScrollState())
-                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
-            ) {
-                ModeTabs(state, vm)
-                Spacer(Modifier.height(10.dp))
-                FavoritesTabs(state, vm)
-                Spacer(Modifier.height(10.dp))
-                HubChips(state, vm)
-                Spacer(Modifier.height(8.dp))
-                DestinationPicker(state, vm)
-                Spacer(Modifier.height(6.dp))
-                SortTabs(state, vm)
-                Spacer(Modifier.height(6.dp))
-                if (state.mode == SearchMode.ALL_DAYS) {
-                    AllDaysControls(state, vm)
-                } else {
-                    WeekendsControls(state, vm)
+            // v2.15: лента ключевых переключателей — всегда видна, занимает 1 строку
+            CompactChipRow(state, vm, expanded) { expanded = it }
+
+            if (expanded) {
+                Column(
+                    Modifier.padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
+                ) {
+                    Spacer(Modifier.height(4.dp))
+                    HubChips(state, vm)
+                    Spacer(Modifier.height(8.dp))
+                    DestinationPicker(state, vm)
+                    Spacer(Modifier.height(6.dp))
+                    SortTabs(state, vm)
+                    Spacer(Modifier.height(6.dp))
+                    if (state.mode == SearchMode.ALL_DAYS) {
+                        AllDaysControls(state, vm)
+                    } else {
+                        WeekendsControls(state, vm)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    NotificationsRow(state, vm)
                 }
-                Spacer(Modifier.height(6.dp))
-                NotificationsRow(state, vm)
             }
         }
     }
 }
+
+/**
+ * v2.15: горизонтальная лента самых важных переключателей — режим поиска, фильтр
+ * «избранные», тип рейса (прямые/стыковочные), быстрый выбор даты, компактная
+ * сортировка и кнопка «⚙ Ещё». Заменяет три крупных сегментированных блока.
+ */
+@Composable
+private fun CompactChipRow(
+    state: UiState,
+    vm: PobedaViewModel,
+    expanded: Boolean,
+    setExpanded: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 14.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AssistChip(
+            onClick = {
+                val next = if (state.mode == SearchMode.ALL_DAYS)
+                    SearchMode.WEEKENDS else SearchMode.ALL_DAYS
+                vm.setMode(next); vm.refresh()
+            },
+            label = {
+                Text(
+                    if (state.mode == SearchMode.ALL_DAYS) "📅 Все дни" else "🌤 Выходные",
+                    maxLines = 1,
+                    fontWeight = FontWeight.Medium,
+                )
+            },
+            shape = RoundedCornerShape(50),
+        )
+        FilterChip(
+            selected = state.listFilter == ListFilter.FAVORITES,
+            onClick = {
+                vm.setListFilter(
+                    if (state.listFilter == ListFilter.FAVORITES) ListFilter.ALL
+                    else ListFilter.FAVORITES
+                )
+            },
+            label = { Text("⭐ ${state.favorites.size}", maxLines = 1) },
+            leadingIcon = {
+                Icon(
+                    if (state.listFilter == ListFilter.FAVORITES) Icons.Default.Star
+                    else Icons.Outlined.StarBorder,
+                    null,
+                    modifier = Modifier.size(18.dp),
+                )
+            },
+            shape = RoundedCornerShape(50),
+        )
+        // Тип рейса: все -> только прямые -> только стыковочные -> все
+        val directLabel = when (state.directFilter) {
+            DirectFilter.ALL -> "Рейсы: все"
+            DirectFilter.DIRECT_ONLY -> "✈ Только прямые"
+            DirectFilter.TRANSFER_ONLY -> "🔄 Стыковки"
+        }
+        FilterChip(
+            selected = state.directFilter != DirectFilter.ALL,
+            onClick = {
+                val next = when (state.directFilter) {
+                    DirectFilter.ALL -> DirectFilter.DIRECT_ONLY
+                    DirectFilter.DIRECT_ONLY -> DirectFilter.TRANSFER_ONLY
+                    DirectFilter.TRANSFER_ONLY -> DirectFilter.ALL
+                }
+                vm.setDirectFilter(next)
+            },
+            label = { Text(directLabel, maxLines = 1) },
+            trailingIcon = {
+                if (state.directFilter != DirectFilter.ALL) {
+                    Icon(Icons.Default.Close, "Сбросить", modifier = Modifier.size(16.dp))
+                }
+            },
+            shape = RoundedCornerShape(50),
+        )
+        if (state.mode == SearchMode.ALL_DAYS) {
+            val dateFmt = remember { DateTimeFormatter.ofPattern("d MMM", RU) }
+            val uiContext = LocalContext.current
+            AssistChip(
+                onClick = {
+                    val context = uiContext
+                    val d = state.fromDate
+                    DatePickerDialog(
+                        context,
+                        { _, y, m, day ->
+                            vm.setDate(LocalDate.of(y, m + 1, day)); vm.refresh()
+                        },
+                        d.year, d.monthValue - 1, d.dayOfMonth,
+                    ).apply {
+                        datePicker.minDate = System.currentTimeMillis() - 24L * 3600 * 1000
+                    }.show()
+                },
+                label = { Text("с ${state.fromDate.format(dateFmt)} · ${state.daysCount} дн.", maxLines = 1) },
+                leadingIcon = { Icon(Icons.Default.DateRange, null, modifier = Modifier.size(18.dp)) },
+                shape = RoundedCornerShape(50),
+            )
+        } else {
+            val monthFmt = remember { DateTimeFormatter.ofPattern("LLLL yyyy", RU) }
+            AssistChip(
+                onClick = { setExpanded(true) },
+                label = {
+                    Text(
+                        state.month.atDay(1).format(monthFmt).replaceFirstChar { it.uppercase(RU) },
+                        maxLines = 1,
+                    )
+                },
+                leadingIcon = { Icon(Icons.Default.CalendarMonth, null, modifier = Modifier.size(18.dp)) },
+                shape = RoundedCornerShape(50),
+            )
+        }
+        SortDropdown(state, vm)
+        AssistChip(
+            onClick = { setExpanded(!expanded) },
+            label = { Text(if (expanded) "⚙ Свернуть ▴" else "⚙ Ещё ▾", maxLines = 1) },
+            shape = RoundedCornerShape(50),
+        )
+    }
+}
+
+/** v2.15: компактное выпадающее меню сортировки вместо трёх кнопок. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SortDropdown(state: UiState, vm: PobedaViewModel) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Box {
+        AssistChip(
+            onClick = { menuOpen = true },
+            label = {
+                Text(
+                    when (state.sortOrder) {
+                        SortOrder.NONE -> "Сортировка ▾"
+                        SortOrder.ASC -> "Цена ↑"
+                        SortOrder.DESC -> "Цена ↓"
+                    },
+                    maxLines = 1,
+                )
+            },
+            leadingIcon = { Icon(Icons.Default.Sort, null, modifier = Modifier.size(18.dp)) },
+            shape = RoundedCornerShape(50),
+        )
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            listOf(
+                SortOrder.NONE to "Без сортировки",
+                SortOrder.ASC to "Цена ↑ сначала дешёвые",
+                SortOrder.DESC to "Цена ↓ сначала дорогие",
+            ).forEach { (order, label) ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            label,
+                            fontWeight = if (state.sortOrder == order) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    },
+                    leadingIcon = {
+                        if (state.sortOrder == order) Icon(Icons.Default.Check, null)
+                    },
+                    onClick = { vm.setSortOrder(order); menuOpen = false },
+                )
+            }
+        }
+    }
+}
+
 
 /**
  * Включает уведомления и запрашивает разрешение POST_NOTIFICATIONS (Android 13+).
@@ -643,90 +809,6 @@ private fun filterSummary(state: UiState): String {
 private fun UiState.modeLabel(): String = when (mode) {
     SearchMode.ALL_DAYS -> "Все дни"
     SearchMode.WEEKENDS -> "Выходные"
-}
-
-/** Красивый переключатель режимов в стиле сегментированных вкладок. */
-@Composable
-private fun ModeTabs(state: UiState, vm: PobedaViewModel) {
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-    ) {
-        Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            SearchMode.entries.forEach { mode ->
-                val selected = state.mode == mode
-                val text = when (mode) {
-                    SearchMode.ALL_DAYS -> "📅  Все дни"
-                    SearchMode.WEEKENDS -> "🌤  Выходные"
-                }
-                Surface(
-                    onClick = {
-                        if (!selected) { vm.setMode(mode); vm.refresh() }
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (selected) MaterialTheme.colorScheme.primary
-                            else Color.Transparent,
-                    contentColor = if (selected) MaterialTheme.colorScheme.onPrimary
-                                   else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Box(
-                        Modifier.padding(horizontal = 10.dp, vertical = 11.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text,
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                            maxLines = 1,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** Переключатель «Все / Избранные» — фильтр списка направлений. */
-@Composable
-private fun FavoritesTabs(state: UiState, vm: PobedaViewModel) {
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-    ) {
-        Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            data class Opt(val filter: ListFilter, val label: String)
-            listOf(
-                Opt(ListFilter.ALL, "🌐  Все направления"),
-                Opt(ListFilter.FAVORITES, "⭐  Избранные (${state.favorites.size})"),
-            ).forEach { opt ->
-                val selected = state.listFilter == opt.filter
-                Surface(
-                    onClick = { vm.setListFilter(opt.filter) },
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (selected) MaterialTheme.colorScheme.primary
-                            else Color.Transparent,
-                    contentColor = if (selected) MaterialTheme.colorScheme.onPrimary
-                                   else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Box(
-                        Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            opt.label,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                            maxLines = 1,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                }
-            }
-        }
-    }
 }
 
 /** Звёздочка избранного на карточке направления. */
