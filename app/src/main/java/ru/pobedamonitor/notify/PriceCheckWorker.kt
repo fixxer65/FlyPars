@@ -7,6 +7,9 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import ru.pobedamonitor.data.FavoritesRepository
 import ru.pobedamonitor.data.PobedaRepository
@@ -65,20 +68,25 @@ class PriceCheckWorker(
 
         // Уведомления: тот же движок, что и в интерфейсе (v2.4/v2.6/v2.7).
         // v2.10: если хотя бы у одной цели режим «туда+обратно» — догружаем обратные цены.
-        var returnPrices = emptyMap<String, Map<String, PobedaRepository.PriceEntry>>()
+        var returnPrices: Map<String, Map<String, PobedaRepository.PriceEntry>> = emptyMap()
         val rtTargets = favorites.allTargetRoundTrips()
         if (favorites.notifyRoundTrip || rtTargets.isNotEmpty()) {
             val needRt = routes.filter { r ->
                 favorites.notifyRoundTrip || keyFor(r) in rtTargets
             }
-            returnPrices = kotlinx.coroutines.coroutineScope {
+            val dates = ArrayList<LocalDate>()
+            var d = today.plusDays(1)
+            while (d <= today.plusDays(BACKFILL_DAYS)) { dates.add(d); d = d.plusDays(1) }
+            returnPrices = coroutineScope {
                 needRt.map { route ->
-                    kotlinx.coroutines.async {
-                        keyFor(route) to repository.fetchReturnPrices(
-                            hubIata = route.hubIata,
-                            arrivalIata = route.arrivalIata,
-                            dates = (today.plusDays(1)..today.plusDays(BACKFILL_DAYS)).toList(),
-                        )
+                    async(Dispatchers.IO) {
+                        keyFor(route) to runCatching {
+                            repository.fetchReturnPrices(
+                                hubIata = route.hubIata,
+                                arrivalIata = route.arrivalIata,
+                                dates = dates,
+                            )
+                        }.getOrDefault(emptyMap())
                     }
                 }.awaitAll().filter { it.second.isNotEmpty() }.toMap()
             }

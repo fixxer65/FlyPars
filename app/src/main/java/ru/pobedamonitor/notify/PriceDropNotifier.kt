@@ -57,9 +57,10 @@ class PriceDropNotifier(private val context: Context) {
         }
 
         // Снимаем предыдущие цены ДО записи новых, затем обновляем хранилище (оба ключа: «туда» и «пара»).
-        val previousPrices = routes.flatMap { r ->
-            listOf(priceKey(keyFor(r), false), priceKey(keyFor(r), true))
-                .associateWith { favorites.getLastKnownPrice(it) }
+        val previousPrices = mutableMapOf<String, Int?>()
+        routes.forEach { r ->
+            previousPrices[priceKey(keyFor(r), false)] = favorites.getLastKnownPrice(priceKey(keyFor(r), false))
+            previousPrices[priceKey(keyFor(r), true)] = favorites.getLastKnownPrice(priceKey(keyFor(r), true))
         }
         routes.forEach { r ->
             val oneWay = r.cheapest?.price ?: return@forEach
@@ -88,7 +89,9 @@ class PriceDropNotifier(private val context: Context) {
             val target = favorites.getTargetPrice(code)
             if (target > 0) {
                 val targetRT = favorites.isTargetRoundTrip(code)
-                val currentForTarget = if (targetRT) pairPrice(route, returnPrices, current) else current
+                val oneWay = route.cheapest?.price
+                val currentForTarget = if (oneWay != null && targetRT)
+                    pairPrice(route, returnPrices, oneWay) else current
                 val prevKey = priceKey(code, targetRT)
                 if (currentForTarget <= target) {
                     // не спамим: повторно только если цена снова выросла выше цели и затем упала
