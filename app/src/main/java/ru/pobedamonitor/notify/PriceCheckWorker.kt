@@ -99,15 +99,31 @@ class PriceCheckWorker(
         private const val WORK_NAME = "hourly_price_check"
         private const val BACKFILL_DAYS = 20L
 
-        /** Ставит/обновляет ежечасную фоновую проверку (минимум для WorkManager — 1 час). */
+        /**
+         * Ставит фоновую проверку с сохранением уже выбранного интервала (v2.12).
+         * Если задание ещё не существовало — создаётся с интервалом по умолчанию (1 ч).
+         */
         fun schedule(context: Context) {
-            val request = PeriodicWorkRequestBuilder<PriceCheckWorker>(1, TimeUnit.HOURS)
+            val saved = FavoritesRepository(context).checkIntervalHours
+            schedule(context, saved)
+        }
+
+        /**
+         * Ставит/обновляет периодическую проверку цен с указанным интервалом в часах
+         * (v2.12: пользователь может выбрать 1 / 6 / 24; минимум WorkManager — 1 час).
+         */
+        fun schedule(context: Context, hours: Int) {
+            val h = hours.coerceIn(
+                FavoritesRepository.MIN_CHECK_HOURS,
+                FavoritesRepository.MAX_CHECK_HOURS,
+            )
+            val request = PeriodicWorkRequestBuilder<PriceCheckWorker>(h.toLong(), TimeUnit.HOURS)
                 .setInitialDelay(5, TimeUnit.MINUTES)
                 .build()
-            // REPLACE: старые задания с интервалом 24 ч нужно пересоздать с новым интервалом
+            // REPLACE: старые задания с другим интервалом нужно пересоздать заново
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,
-                ExistingPeriodicWorkPolicy.REPLACE,
+                ExistingPeriodicWorkPolicy.UPDATE,
                 request,
             )
         }

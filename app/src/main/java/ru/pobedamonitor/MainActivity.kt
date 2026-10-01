@@ -143,6 +143,8 @@ fun MainScreen(
 
     // v2.5: экран графика истории цен по направлению (открывается тапом по карточке).
     var historyRoute by remember { mutableStateOf<PobedaRepository.RoutePrices?>(null) }
+    // v2.12: экран «Мои цели» — список всех заданных целевых цен.
+    var showTargets by remember { mutableStateOf(false) }
     // v2.5: экспорт истории в CSV — через системный «Поделиться».
     val context = LocalContext.current
     val shareCsv: () -> Unit = {
@@ -208,6 +210,18 @@ fun MainScreen(
                             titleContentColor = Color.White,
                         ),
                         scrollBehavior = scrollBehavior,
+                        // v2.12: быстрый доступ к списку всех целевых цен.
+                        actions = {
+                            if (state.targetPrices.isNotEmpty()) {
+                                TextButton(onClick = { showTargets = true }) {
+                                    Text(
+                                        "🎯 ${state.targetPrices.size}",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelLarge,
+                                    )
+                                }
+                            }
+                        },
                     )
                 }
             }
@@ -251,6 +265,15 @@ fun MainScreen(
             vm = vm,
             state = state,
             onDismiss = { historyRoute = null },
+        )
+    }
+
+    // v2.12: экран «Мои цели» — все заданные целевые цены списком.
+    if (showTargets) {
+        TargetsScreen(
+            state = state,
+            vm = vm,
+            onDismiss = { showTargets = false },
         )
     }
 }
@@ -429,9 +452,9 @@ private fun NotificationsRow(state: UiState, vm: PobedaViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 // v2.8: WorkManager проверяет цены и шлёт уведомления даже с закрытым приложением.
-                // v2.11: интервал сокращён до ~1 часа.
+                // v2.11: интервал сокращён до ~1 часа; v2.12: интервал выбирается пользователем.
                 Text(
-                    "Работает в фоне ~раз в час (без открытия приложения)",
+                    "Работает в фоне без открытия приложения",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -553,6 +576,38 @@ private fun NotificationsRow(state: UiState, vm: PobedaViewModel) {
                         )
                     }
                 }
+            }
+
+            Spacer(Modifier.height(4.dp))
+
+            // v2.12: выбор интервала фоновой проверки цен (минимум Android — 1 час).
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Проверять в фоне:",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(
+                        1 to "раз в час",
+                        6 to "раз в 6 ч",
+                        24 to "раз в сутки",
+                    ).forEach { (hours, label) ->
+                        FilterChip(
+                            selected = state.checkIntervalHours == hours,
+                            onClick = { vm.setCheckInterval(hours) },
+                            label = { Text(label, maxLines = 1) },
+                        )
+                    }
+                }
+            }
+            if (state.checkIntervalHours > 1) {
+                Text(
+                    "Android выполняет периодические проверки с плавающим окном ±15 мин; чаще раза в час система не позволяет.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -1844,6 +1899,139 @@ private fun TargetPriceDialog(
             }
         },
     )
+}
+
+/**
+ * v2.12: экран «Мои цели» — все заданные целевые цены списком:
+ * направление, режим (туда / туда+обратно), цель, последняя известная цена,
+ * прогресс до цели; тап по строке открывает диалог изменения/снятия цели.
+ */
+@Composable
+private fun TargetsScreen(
+    state: UiState,
+    vm: PobedaViewModel,
+    onDismiss: () -> Unit,
+) {
+    val targets = state.targetPrices.entries.sortedBy { it.value }
+    var editing by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("🎯 Мои цели (${targets.size})") },
+        text = {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (targets.isEmpty()) {
+                    Text(
+                        "Целей пока нет.\nОтметьте направление ⭐ и нажмите «🎯 задать целевую цену» на карточке — уведомление придёт, когда цена станет не выше цели.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                targets.forEach { (code, target) ->
+                    val rt = code in state.targetRoundTrips
+                    // Последняя известная цена: из загруженных направлений или сохранённый снимок.
+                    val currentOneWay: Int? = state.routes
+                        .firstOrNull { "${it.hubIata}-${it.arrivalIata}" == code }
+                        ?.cheapest?.price
+                        ?: runCatching { vm.lastKnownPrice(code) }.getOrNull()
+                    val returnMin = state.returnPrices[code]?.values?.minOfOrNull { it.price }
+                    val currentPair = currentOneWay?.let { o -> returnMin?.let { o + it } }
+                    val current = if (rt) currentPair else currentOneWay
+                    val reached = current != null && current <= target
+                    val gap = current?.let { it - target }
+
+                    Surface(
+                        onClick = { editing = code },
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (reached) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    vm.arrivalNameFor(code),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    if (rt) "↨ туда+обратно" else "✈️ туда",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Spacer(Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "цель ${formatPrice(target)}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                when {
+                                    reached -> Text(
+                                        "✅ ${formatPrice(current!!)} — достигнута",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    current != null -> Text(
+                                        "сейчас ${formatPrice(current)} · осталось −${formatPrice(gap!!)}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    else -> Text(
+                                        "цен пока нет",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            // Прогресс: насколько текущая цена ближе к цели относительно её пика
+                            if (current != null && !reached && current > 0) {
+                                Spacer(Modifier.height(6.dp))
+                                LinearProgressIndicator(
+                                    progress = (target.toFloat() / current.toFloat()).coerceIn(0f, 1f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(5.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Закрыть") }
+        },
+    )
+
+    // Диалог редактирования цели прямо из списка
+    editing?.let { code ->
+        val route = state.routes.firstOrNull { "${it.hubIata}-${it.arrivalIata}" == code }
+        TargetPriceDialog(
+            routeName = vm.arrivalNameFor(code),
+            currentPrice = route?.cheapest?.price,
+            pairPrice = route?.cheapest?.price?.let { o ->
+                state.returnPrices[code]?.values?.minOfOrNull { it.price }?.let { o + it }
+            },
+            initialTarget = state.targetPrices[code] ?: 0,
+            initialRoundTrip = code in state.targetRoundTrips,
+            onDismiss = { editing = null },
+            onSave = { price, roundTrip ->
+                vm.setTargetPrice(code, price, roundTrip)
+                editing = null
+            },
+        )
+    }
 }
 
 private fun formatPrice(price: Int): String =

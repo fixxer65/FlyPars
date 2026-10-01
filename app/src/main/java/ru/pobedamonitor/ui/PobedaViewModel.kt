@@ -83,6 +83,8 @@ data class UiState(
     val targetPrices: Map<String, Int> = emptyMap(),
     /** v2.10: направления, у которых цель задана на сумму «туда+обратно». */
     val targetRoundTrips: Set<String> = emptySet(),
+    /** v2.12: интервал фоновой проверки цен, часов (1 / 6 / 24). */
+    val checkIntervalHours: Int = ru.pobedamonitor.data.FavoritesRepository.DEFAULT_CHECK_HOURS,
 ) {
     val toDate: LocalDate get() = fromDate.plusDays((daysCount - 1).coerceAtLeast(0).toLong())
 
@@ -282,6 +284,7 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
             notifyRoundTrip = favoritesRepository.notifyRoundTrip,
             targetPrices = favoritesRepository.allTargetPrices(),
             targetRoundTrips = favoritesRepository.allTargetRoundTrips(),
+            checkIntervalHours = favoritesRepository.checkIntervalHours,
         )
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -424,6 +427,20 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
         _state.update { it.copy(notifyRoundTrip = enabled) }
     }
 
+    /** v2.12: выбрать интервал фоновой проверки цен (1 / 6 / 24 часа). */
+    fun setCheckInterval(hours: Int) {
+        val h = hours.coerceIn(
+            ru.pobedamonitor.data.FavoritesRepository.MIN_CHECK_HOURS,
+            ru.pobedamonitor.data.FavoritesRepository.MAX_CHECK_HOURS,
+        )
+        favoritesRepository.checkIntervalHours = h
+        _state.update { it.copy(checkIntervalHours = h) }
+        // Пересоздаём фоновое задание с новым интервалом, если оно активно.
+        if (favoritesRepository.notificationsEnabled || favoritesRepository.allTargetPrices().isNotEmpty()) {
+            ru.pobedamonitor.notify.PriceCheckWorker.schedule(appContext, h)
+        }
+    }
+
     /** v2.7: задать/снять целевую цену направления (0 = снять). v2.10: цель может быть на сумму «туда+обратно». */
     fun setTargetPrice(code: String, priceRub: Int, roundTrip: Boolean = false) {
         val v = priceRub.coerceIn(0, 1_000_000)
@@ -442,6 +459,15 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
             ru.pobedamonitor.notify.PriceCheckWorker.cancel(appContext)
         }
     }
+
+    /** v2.12: имя города прилёта по ключу "hub-arrival" (из загруженных направлений, иначе IATA). */
+    fun arrivalNameFor(code: String): String =
+        _state.value.routes.firstOrNull { _state.value.keyFor(it) == code }
+            ?.arrivalName?.ifBlank { null }
+            ?: code.substringAfter('-')
+
+    /** v2.12: последняя известная цена направления (для экрана «Мои цели», когда список не загружен). */
+    fun lastKnownPrice(code: String): Int? = favoritesRepository.getLastKnownPrice(code)
 
     /** Добавить/убрать направление из избранного, сохранить локально. */
     fun toggleFavorite(code: String) {

@@ -165,6 +165,20 @@ class FavoritesRepository(context: Context) {
         get() = prefs.getBoolean(NOTIF_ENABLED_KEY, false)
         set(value) = prefs.edit().putBoolean(NOTIF_ENABLED_KEY, value).apply()
 
+    // ---- v2.12: интервал фоновой проверки цен ----
+
+    /**
+     * Интервал фоновой проверки цен в часах. Допустимы 1 / 6 / 24
+     * (WorkManager позволяет периодические задачи не чаще раза в час).
+     * По умолчанию — 1 час (как в v2.11).
+     */
+    var checkIntervalHours: Int
+        get() = prefs.getInt(CHECK_INTERVAL_KEY, DEFAULT_CHECK_HOURS)
+            .coerceIn(MIN_CHECK_HOURS, MAX_CHECK_HOURS)
+        set(value) = prefs.edit()
+            .putInt(CHECK_INTERVAL_KEY, value.coerceIn(MIN_CHECK_HOURS, MAX_CHECK_HOURS))
+            .apply()
+
     companion object {
         private const val KEY = "favorite_routes"
         private const val SNAPSHOT_KEY = "favorite_snapshot"
@@ -178,6 +192,10 @@ class FavoritesRepository(context: Context) {
         private const val TARGET_PREFIX = "target_price_"
         private const val TARGET_RT_PREFIX = "target_rt_"
         private const val TARGET_NOTIFIED_PREFIX = "target_notified_"
+        private const val CHECK_INTERVAL_KEY = "check_interval_hours"
+        const val DEFAULT_CHECK_HOURS = 1
+        const val MIN_CHECK_HOURS = 1   // минимум WorkManager для периодических задач
+        const val MAX_CHECK_HOURS = 24
         const val DEFAULT_DROP_PERCENT = 10
         const val MODE_PERCENT = "percent"
         const val MODE_AMOUNT = "amount"
