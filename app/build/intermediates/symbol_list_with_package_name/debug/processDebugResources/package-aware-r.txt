@@ -67,6 +67,7 @@ drawable notification_template_icon_bg
 drawable notification_template_icon_low_bg
 drawable notification_tile_bg
 drawable notify_panel_notification_icon_bg
+drawable widget_background
 id accessibility_action_clickable_span
 id accessibility_custom_action_0
 id accessibility_custom_action_1
@@ -113,6 +114,7 @@ id compose_view_saveable_id_tag
 id consume_window_insets_tag
 id dialog_button
 id edit_text_id
+id emptyText
 id forever
 id hide_graphics_layer_in_inspector_tag
 id hide_ime_id
@@ -125,14 +127,26 @@ id is_pooling_container_tag
 id italic
 id line1
 id line3
+id name1
+id name2
+id name3
+id name4
 id normal
 id notification_background
 id notification_main_column
 id notification_main_column_container
 id pooling_container_listener_holder_tag
+id price1
+id price2
+id price3
+id price4
 id report_drawn
 id right_icon
 id right_side
+id row1
+id row2
+id row3
+id row4
 id tag_accessibility_actions
 id tag_accessibility_clickable_spans
 id tag_accessibility_heading
@@ -150,10 +164,12 @@ id text
 id text2
 id time
 id title
+id updatedAt
 id view_tree_lifecycle_owner
 id view_tree_on_back_pressed_dispatcher_owner
 id view_tree_saved_state_registry_owner
 id view_tree_view_model_store_owner
+id widget_root
 id wrapped_composition_tag
 integer m3c_window_layout_in_display_cutout_mode
 integer status_bar_notification_info_maxnum
@@ -166,6 +182,7 @@ layout notification_template_custom_big
 layout notification_template_icon_group
 layout notification_template_part_chronometer
 layout notification_template_part_time
+layout widget_price
 mipmap ic_launcher
 mipmap ic_launcher_round
 string androidx_startup
@@ -268,9 +285,13 @@ style TextAppearance_Compat_Notification_Title
 style Theme_PobedaMonitor
 style Widget_Compat_NotificationActionContainer
 style Widget_Compat_NotificationActionText
+style WidgetName
+style WidgetPrice
+style WidgetRow
 styleable Capability queryPatterns shortcutMatchRequired
 styleable ColorStateListItem android_color android_alpha android_lStar alpha lStar
 styleable FontFamily fontProviderAuthority fontProviderCerts fontProviderFetchStrategy fontProviderFetchTimeout fontProviderPackage fontProviderQuery fontProviderSystemFontFamily
 styleable FontFamilyFont android_font android_fontWeight android_fontStyle android_ttcIndex android_fontVariationSettings font fontStyle fontVariationSettings fontWeight ttcIndex
 styleable GradientColor android_startColor android_endColor android_type android_centerX android_centerY android_gradientRadius android_tileMode android_centerColor android_startX android_startY android_endX android_endY
 styleable GradientColorItem android_color android_offset
+xml widget_info

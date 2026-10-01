@@ -8,7 +8,19 @@
         "source": "ru.pobedamonitor.app-main-49:/mipmap-anydpi-v26/ic_launcher_round.xml"
     },
     {
+        "merged": "ru.pobedamonitor.app-debug-47:/layout_widget_price.xml.flat",
+        "source": "ru.pobedamonitor.app-main-49:/layout/widget_price.xml"
+    },
+    {
         "merged": "ru.pobedamonitor.app-debug-47:/drawable_ic_launcher_foreground.xml.flat",
         "source": "ru.pobedamonitor.app-main-49:/drawable/ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "ru.pobedamonitor.app-debug-47:/drawable_widget_background.xml.flat",
+        "source": "ru.pobedamonitor.app-main-49:/drawable/widget_background.xml"
+    },
+    {
+        "merged": "ru.pobedamonitor.app-debug-47:/xml_widget_info.xml.flat",
+        "source": "ru.pobedamonitor.app-main-49:/xml/widget_info.xml"
     }
 ]

@@ -31,6 +31,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.DatePicker
@@ -56,6 +58,7 @@ import ru.pobedamonitor.data.PobedaRepository
 import ru.pobedamonitor.ui.PobedaMonitorTheme
 import ru.pobedamonitor.ui.PobedaViewModel
 import ru.pobedamonitor.ui.SearchMode
+import ru.pobedamonitor.ui.ListFilter
 import ru.pobedamonitor.ui.SortOrder
 import ru.pobedamonitor.ui.UiState
 import ru.pobedamonitor.ui.headerBrush
@@ -82,7 +85,11 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(vm: PobedaViewModel = viewModel()) {
+fun MainScreen(
+    vm: PobedaViewModel = viewModel(
+        factory = PobedaViewModel.factory(LocalContext.current),
+    ),
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     val scroll = rememberTopAppBarState()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(scroll)
@@ -142,7 +149,7 @@ fun MainScreen(vm: PobedaViewModel = viewModel()) {
             val visible = state.visibleRoutes()
             when {
                 state.isLoading && visible.isEmpty() -> LoadingBlock()
-                visible.isEmpty() && !state.isLoading -> EmptyBlock(state)
+                visible.isEmpty() && !state.isLoading -> EmptyBlock(state, vm)
                 else -> {
                     ResultsHeader(state, visible)
                     RefreshableResults(vm, state, visible, scrollBehavior)
@@ -248,6 +255,8 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
             Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 14.dp)) {
                 ModeTabs(state, vm)
                 Spacer(Modifier.height(10.dp))
+                FavoritesTabs(state, vm)
+                Spacer(Modifier.height(10.dp))
                 HubChips(state, vm)
                 Spacer(Modifier.height(8.dp))
                 DestinationPicker(state, vm)
@@ -277,6 +286,9 @@ private fun filterSummary(state: UiState): String {
     }
     return buildString {
         append(state.modeLabel())
+        if (state.listFilter == ListFilter.FAVORITES) {
+            append(" · ⭐ избранное (${state.favorites.size})")
+        }
         append(" · ")
         append(hubs)
         append(" → ")
@@ -333,6 +345,72 @@ private fun ModeTabs(state: UiState, vm: PobedaViewModel) {
                 }
             }
         }
+    }
+}
+
+/** Переключатель «Все / Избранные» — фильтр списка направлений. */
+@Composable
+private fun FavoritesTabs(state: UiState, vm: PobedaViewModel) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            data class Opt(val filter: ListFilter, val label: String)
+            listOf(
+                Opt(ListFilter.ALL, "🌐  Все направления"),
+                Opt(ListFilter.FAVORITES, "⭐  Избранные (${state.favorites.size})"),
+            ).forEach { opt ->
+                val selected = state.listFilter == opt.filter
+                Surface(
+                    onClick = { vm.setListFilter(opt.filter) },
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (selected) MaterialTheme.colorScheme.primary
+                            else Color.Transparent,
+                    contentColor = if (selected) MaterialTheme.colorScheme.onPrimary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Box(
+                        Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            opt.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Звёздочка избранного на карточке направления. */
+@Composable
+private fun FavoriteStar(code: String, state: UiState, vm: PobedaViewModel) {
+    val isFav = code in state.favorites
+    val tint by animateColorAsState(
+        if (isFav) MaterialTheme.colorScheme.tertiary
+        else MaterialTheme.colorScheme.outline,
+        label = "favTint",
+    )
+    Surface(
+        onClick = { vm.toggleFavorite(code) },
+        shape = CircleShape,
+        color = Color.Transparent,
+    ) {
+        Icon(
+            imageVector = if (isFav) Icons.Default.Star else Icons.Outlined.StarBorder,
+            contentDescription = if (isFav) "Убрать из избранного" else "В избранное",
+            tint = tint,
+            modifier = Modifier
+                .size(34.dp)
+                .padding(6.dp),
+        )
     }
 }
 
@@ -775,7 +853,7 @@ private fun RefreshableResults(
         onRefresh = { vm.refreshRate(); vm.refresh() },
         modifier = Modifier.fillMaxSize(),
     ) {
-        RouteList(state, visible, scrollBehavior)
+        RouteList(state, visible, vm, scrollBehavior)
     }
 }
 
@@ -842,16 +920,28 @@ private fun LoadingBlock() {
 }
 
 @Composable
-private fun EmptyBlock(state: UiState) {
+private fun EmptyBlock(state: UiState, vm: PobedaViewModel) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(
-            if (state.errors.isNotEmpty())
-                "Не удалось загрузить цены.\nПроверьте интернет и\nпотяните список вниз для обновления."
-            else "Нет предложений на выбранные даты.",
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                when {
+                    state.errors.isNotEmpty() ->
+                        "Не удалось загрузить цены.\nПроверьте интернет и\nпотяните список вниз для обновления."
+                    state.listFilter == ListFilter.FAVORITES ->
+                        "В избранном пока пусто.\nОтметьте направления ⭐\nи они появятся здесь и в виджете."
+                    else -> "Нет предложений на выбранные даты."
+                },
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (state.listFilter == ListFilter.FAVORITES && state.errors.isEmpty()) {
+                Spacer(Modifier.height(14.dp))
+                Button(onClick = { vm.setListFilter(ListFilter.ALL) }) {
+                    Text("Показать все направления")
+                }
+            }
+        }
     }
 }
 
@@ -860,6 +950,7 @@ private fun EmptyBlock(state: UiState) {
 private fun RouteList(
     state: UiState,
     visible: List<PobedaRepository.RoutePrices>,
+    vm: PobedaViewModel,
     scrollBehavior: TopAppBarScrollBehavior? = null,
 ) {
     val dayFmt = remember { DateTimeFormatter.ofPattern("dd.MM", RU) }
@@ -892,11 +983,11 @@ private fun RouteList(
         if (state.mode == SearchMode.WEEKENDS && state.returnEnabled) {
             val pairs = state.tripPairs(state.weekendDepartureDates())
             items(pairs, key = { "p-${it.route.hubIata}-${it.route.arrivalIata}" }) { pair ->
-                TripPairCard(pair, state, longFmt)
+                TripPairCard(pair, state, vm, longFmt)
             }
         } else {
             items(visible, key = { "r-${it.hubIata}-${it.arrivalIata}" }) { route ->
-                RouteCard(route, state, dayFmt)
+                RouteCard(route, state, vm, dayFmt)
             }
         }
     }
@@ -908,6 +999,7 @@ private fun RouteList(
 private fun TripPairCard(
     pair: UiState.TripPair,
     state: UiState,
+    vm: PobedaViewModel,
     longFmt: DateTimeFormatter,
 ) {
     val route = pair.route
@@ -969,6 +1061,7 @@ private fun TripPairCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                FavoriteStar("${route.hubIata}-${route.arrivalIata}", state, vm)
                 pair.cheapestTotal?.let {
                     Column(horizontalAlignment = Alignment.End) {
                         Surface(
@@ -1090,6 +1183,7 @@ private fun TripPairCard(
 private fun RouteCard(
     route: PobedaRepository.RoutePrices,
     state: UiState,
+    vm: PobedaViewModel,
     dayFmt: DateTimeFormatter,
 ) {
     val hubName = PobedaRepository.HUBS.first { it.iata == route.hubIata }.name
@@ -1137,6 +1231,7 @@ private fun RouteCard(
                         fontWeight = if (w != null) FontWeight.Medium else FontWeight.Normal,
                     )
                 }
+                FavoriteStar("${route.hubIata}-${route.arrivalIata}", state, vm)
                 cheapest?.let {
                     Surface(
                         shape = RoundedCornerShape(50),

@@ -1,10 +1,18 @@
-# Gradle
+# Gradle and Android build artifacts
 .gradle/
+build/
+local.properties
 
-# Build artifacts
-build/node_modules/
+# IDE files
+.idea/
+*.iml
+*.iws
+*.ipr
+.cxx/
+
+# OS generated files
+.DS_Store
+Thumbs.dbnode_modules/
 .next/
 dist/
-build/
 *.log
-node_modules/
