@@ -1616,6 +1616,7 @@ private fun TripPairCard(
                                     "✈ " + combo.legLabel(
                                         combo.depDate, combo.outboundDepTime,
                                         combo.outboundDirect, longFmt,
+                                        combo.outboundDepVerified,
                                     ),
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = if (isBest) FontWeight.Bold else FontWeight.Normal,
@@ -1627,6 +1628,7 @@ private fun TripPairCard(
                                         combo.legLabel(
                                             combo.retDate, combo.returnDepTime,
                                             combo.returnDirect, longFmt,
+                                            combo.returnDepVerified,
                                         ),
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = if (isBest) FontWeight.Bold else FontWeight.Normal,
@@ -1843,7 +1845,7 @@ private fun RouteCard(
                             )
                             // v2.13: время вылета + прямой/стыковочный для лучшей цены дня
                             if (isMin) {
-                                entry.depTime?.let {
+                                if (entry.depTimeVerified) entry.depTime?.let {
                                     Text(
                                         "✈ $it · ${if (entry.isDirect) "прямой" else "стыковочный"}",
                                         style = MaterialTheme.typography.labelSmall,

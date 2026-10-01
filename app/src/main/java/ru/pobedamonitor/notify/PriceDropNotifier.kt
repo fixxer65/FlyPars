@@ -183,7 +183,7 @@ class PriceDropNotifier(private val context: Context) {
             java.time.LocalDate.parse(best.depDate)
                 .format(java.time.format.DateTimeFormatter.ofPattern("d MMMM", Locale("ru")))
         }.getOrDefault(best.depDate)
-        val time = best.depTime?.let { " · выезд $it" } ?: ""
+        val time = if (best.depTimeVerified) best.depTime?.let { " · выезд $it" } ?: "" else ""
         return "✈ $date$time · ${if (best.isDirect) "прямой рейс" else "стыковочный"}"
     }
 

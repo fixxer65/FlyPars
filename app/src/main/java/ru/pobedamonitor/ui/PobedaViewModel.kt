@@ -183,6 +183,9 @@ data class UiState(
             val outboundDirect: Boolean = true,
             val returnDepTime: String? = null,
             val returnDirect: Boolean = true,
+            // v2.16: время вылета подтверждено расписанием (показывать можно)
+            val outboundDepVerified: Boolean = false,
+            val returnDepVerified: Boolean = false,
         ) {
             val total: Int get() = outboundPrice + returnPrice
 
@@ -192,9 +195,10 @@ data class UiState(
                 depTime: String?,
                 direct: Boolean,
                 fmt: DateTimeFormatter,
+                depVerified: Boolean = true,
             ): String {
                 val d = date.format(fmt).replaceFirstChar { it.uppercase() }
-                val t = depTime?.let { " · $it" } ?: ""
+                val t = if (depVerified) depTime?.let { " · $it" } ?: "" else ""
                 return "$d$t · ${if (direct) "прямой" else "стык."}"
             }
         }
@@ -214,8 +218,10 @@ data class UiState(
                             returnPrice = pe.first.price,
                             outboundDepTime = o.depTime,
                             outboundDirect = o.isDirect,
+                            outboundDepVerified = o.depTimeVerified,
                             returnDepTime = pe.first.depTime,
                             returnDirect = pe.first.isDirect,
+                            returnDepVerified = pe.first.depTimeVerified,
                         )
                     }
                 }

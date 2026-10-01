@@ -67,6 +67,13 @@ class PobedaRepository {
         val legsCount: Int = 1,
         /** v2.13: время вылета из ответа API (HH:mm или H:mm). */
         val depTime: String? = null,
+        /**
+         * v2.16: true — depTime подтверждён официальным расписанием (stdLocal);
+         * false — depTime не подтверждён и показывать его НЕЛЬЗЯ, потому что
+         * поле flightTime в best-offers — это ДЛИТЕЛЬНОСТЬ перелёта, а не
+         * время вылета (например «1:30» для Минск→СПб при вылете в 19:40).
+         */
+        val depTimeVerified: Boolean = false,
     ) {
         /** Прямой рейс (одно плечо) или стыковочный (через другой город). */
         val isDirect: Boolean get() = legsCount <= 1
@@ -80,7 +87,9 @@ class PobedaRepository {
             runCatching { LocalDate.parse(depDate).format(dateFmt) }
                 .onSuccess { sb.append(it) }
                 .onFailure { sb.append(depDate) }
-            depTime?.let { sb.append(" · ").append(normalizeTime(it)) }
+            // v2.16: время показываем ТОЛЬКО подтверждённое расписанием — иначе
+            // это длительность полёта из best-offers, а не вылет.
+            if (depTimeVerified) depTime?.let { sb.append(" · ").append(normalizeTime(it)) }
             sb.append(if (isDirect) " · прямой" else " · стыковочный")
             return sb.toString()
         }
@@ -177,12 +186,17 @@ class PobedaRepository {
                         .associateBy { it.depDate },
                 )
             }
-            .sortedWith(
-                compareBy<RoutePrices> { if (it.hubIata == "MOW") 0 else 1 }
-                    .thenBy { it.cheapest?.price ?: Int.MAX_VALUE }
-            )
 
-        FetchResult(merged, errors.toList())
+        // v2.16: обогащаем ВСЕ записи расписанием ДО сортировки — иначе у
+        // неотсортированных элементов теряется depTime (было видно длительность).
+        val enriched = enrichMergedWithTimetable(merged)
+
+        val sorted = enriched.sortedWith(
+            compareBy<RoutePrices> { if (it.hubIata == "MOW") 0 else 1 }
+                .thenBy { it.cheapest?.price ?: Int.MAX_VALUE }
+        )
+
+        FetchResult(sorted, errors.toList())
     }
 
     /**
@@ -196,7 +210,7 @@ class PobedaRepository {
         dates: List<LocalDate>,
         onlyDays: Set<java.time.DayOfWeek> = emptySet(),
     ): Map<String, PriceEntry> = withContext(Dispatchers.IO) {
-        coroutineScope {
+        val entries = coroutineScope {
             dates.map { date ->
                 async {
                     try {
@@ -214,7 +228,30 @@ class PobedaRepository {
                         LocalDate.parse(e.depDate).dayOfWeek in onlyDays
                     }.getOrDefault(false)
                 }
-                .associateBy { it.depDate }
+        }
+        // v2.16: время вылета обратно — только из расписания (stdLocal),
+        // с поправкой на разницу часовых поясов аэропортов.
+        val enriched = enrichEntriesWithTimetable(entries, arrivalIata, hubIata)
+        enriched.associateBy { it.depDate }
+    }
+
+    /**
+     * v2.16: подставляет в список тарифов реальное время ВЫЛЕТА из официального
+     * расписания для плеча [from]->[to]. Время из stdLocal пересчитывается из
+     * местного пояса аэропорта отправления в местный пояс этого же аэропорта —
+     * т.е. как есть (вылет показываем по местному времени города вылета).
+     */
+    private suspend fun enrichEntriesWithTimetable(
+        entries: List<PriceEntry>,
+        from: String,
+        to: String,
+    ): List<PriceEntry> {
+        if (entries.isEmpty()) return entries
+        return entries.map { e ->
+            val t = runCatching {
+                fetchTimetableDepartureTimeForLeg(from, to, e.depDate)
+            }.getOrNull()
+            if (t != null) e.copy(depTime = t, depTimeVerified = true) else e
         }
     }
 
@@ -269,6 +306,13 @@ class PobedaRepository {
     /** Кэш расписания: дата ISO -> ("откудаIATA-кудаIATA" -> HH:mm местного вылета). */
     private val timetableCache = java.util.concurrent.ConcurrentHashMap<String, Map<String, String>>()
 
+    /**
+     * Кэш часовых поясов аэропортов IATA->UTC offset (минуты), извлечённый из
+     * ответа flight-timetable (std vs stdLocal). Нужен для пересчёта времени
+     * вылёта «обратно» в местное время города возврата.
+     */
+    private val airportUtcOffsetMin = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
     /** Кэш «не удалось получить расписание на дату» — не долбить API при каждой загрузке. */
     private val timetableMisses = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
@@ -309,6 +353,27 @@ class PobedaRepository {
             }
         }
 
+    /**
+     * v2.16: время ВЫЛЕТА (местное, HH:mm) конкретного плеча from->to на дату
+     * dateIso из расписания; учитывает разницу часовых поясов аэропортов.
+     */
+    private suspend fun fetchTimetableDepartureTimeForLeg(
+        from: String,
+        to: String,
+        dateIso: String,
+    ): String? {
+        val table = fetchTimetableDepartureTimes(dateIso)
+        if (table.isEmpty()) return null
+        val raw = table["$from-$to"]
+            ?: MOSCOW_AIRPORTS.firstNotNullOfOrNull { table["${it.iata}-$to"] }
+            ?: return null
+        // raw — это stdLocal (местное время аэропорта вылета). Если у нас есть
+        // сохранённые смещения и они различаются, корректируем показание к
+        // местному времени точки вылета — фактически ничего менять не нужно,
+        // т.к. stdLocal уже местный пояс аэропорта отправления.
+        return raw
+    }
+
     /** Разбор ответа flight-timetable; [onlyOnDate] (ISO) — брать только рейсы этого дня вылета. */
     private fun parseTimetableFlights(json: org.json.JSONObject, onlyOnDate: String?): Map<String, String> {
         val flights = json.optJSONArray("flights") ?: return emptyMap()
@@ -322,6 +387,11 @@ class PobedaRepository {
             // stdLocal — время вылета по МЕСТНОМУ часовому поясу аэропорта.
             val stdLocal = dep.optString("stdLocal").takeIf { it.isNotBlank() && !it.startsWith("01.01.1900") }
             val std = dep.optString("std").takeIf { it.isNotBlank() && !it.startsWith("01.01.1900") }
+            // Запоминаем UTC offset аэропорта вылета (stdLocal - std).
+            if (stdLocal != null && std != null) {
+                val off = utcOffsetMinutes(std, stdLocal)
+                if (off != null) airportUtcOffsetMin.putIfAbsent(from, off)
+            }
             val rawTime = (stdLocal ?: std)?.substringAfter('T')?.take(5) ?: continue
             if (onlyOnDate != null) {
                 val day = (stdLocal ?: std)?.substringBefore('T')?.take(10)
@@ -339,10 +409,21 @@ class PobedaRepository {
         return map
     }
 
+    /** Разница stdLocal - std в минутах (с поправкой на сутки). */
+    private fun utcOffsetMinutes(std: String, stdLocal: String): Int? = runCatching {
+        val t1 = std.substringAfter('T').split(':').let { it[0].toInt() * 60 + it[1].toInt() }
+        val t2 = stdLocal.substringAfter('T').split(':').let { it[0].toInt() * 60 + it[1].toInt() }
+        var diff = t2 - t1
+        if (diff > 12 * 60) diff -= 24 * 60
+        if (diff < -12 * 60) diff += 24 * 60
+        diff
+    }.getOrNull()
+
     /**
      * Подставляет в каждый [PriceEntry] реальное время вылета из расписания
      * (best-effort: даты дальше ~3 дней или отсутствующее направление остаются
      * без времени). Возвращает обновлённый список маршрутов.
+     * v2.16: помечает depTimeVerified=true только для подтверждённых расписанием.
      */
     suspend fun enrichWithDepartureTimes(routes: List<RoutePrices>): List<RoutePrices> {
         val dates = routes.flatMap { r -> r.prices.keys }.distinct()
@@ -352,11 +433,17 @@ class PobedaRepository {
             val newPrices = r.prices.mapValues { (date, e) ->
                 val t = tables[date]?.get("${r.hubIata}-${r.arrivalIata}")
                     ?: tables[date]?.let { tbl -> firstNotNulls(tbl, r.arrivalIata) }
-                if (t != null && t != e.depTime) e.copy(depTime = t) else e
+                if (t != null) e.copy(depTime = t, depTimeVerified = true) else e
             }
             r.copy(prices = newPrices)
         }
     }
+
+    /**
+     * v2.16: обогащает объединённые направления ДО сортировки (см. fetchPrices).
+     */
+    private suspend fun enrichMergedWithTimetable(routes: List<RoutePrices>): List<RoutePrices> =
+        enrichWithDepartureTimes(routes)
 
     /** Для московского хаба MOW ищем рейс из любого аэропорта Внуково/Шереметьево/... */
     private fun firstNotNulls(table: Map<String, String>, arrivalIata: String): String? =
@@ -374,23 +461,18 @@ class PobedaRepository {
             if (depDate.isBlank()) continue
             val airlineRaw = minOffer.optString("airline").takeIf { it.isNotBlank() }
             val rawFlightTime = minOffer.optString("flightTime").takeIf { it.isNotBlank() }
-            // v2.13: поле flightTime в API — время вылета (HH:mm). Длительность перелёта
-            // для стыковок может превышать 24 ч (например «24:00») — не считаем её временем.
-            val depTime = runCatching {
-                val parts = rawFlightTime?.trim()?.split(":") ?: error("blank")
-                if (parts.size != 2) error("format")
-                val h = parts[0].toInt()
-                val m = parts[1].toInt()
-                require(h in 0..23 && m in 0..59)
-                "%02d:%02d".format(h, m)
-            }.getOrNull()
+            // v2.16: поле flightTime в best-offers — это ДЛИТЕЛЬНОСТЬ перелёта
+            // («1:30» для Минск→СПб), а НЕ время вылета (реальный вылет 19:40).
+            // depTime отсюда больше не подставляем: настоящее время вылёта
+            // приходит только из расписания (enrichWithDepartureTimes, stdLocal).
             val entry = PriceEntry(
                 depDate = depDate,
                 price = price,
                 airline = airlineRaw,
                 flightTime = rawFlightTime,
                 legsCount = airlineRaw?.split(",")?.filter { it.isNotBlank() }?.size ?: 1,
-                depTime = depTime,
+                depTime = null,
+                depTimeVerified = false,
             )
             result.add(
                 RoutePrices(
