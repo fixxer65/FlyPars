@@ -323,9 +323,7 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
  * Включает уведомления и запрашивает разрешение POST_NOTIFICATIONS (Android 13+).
  * На более старых версиях разрешение не нужно — включаем сразу.
  */
-@Composable
-private fun enableNotificationsWithPermission(vm: PobedaViewModel) {
-    val activity = LocalContext.current as? MainActivity
+private fun enableNotificationsWithPermission(activity: MainActivity?, vm: PobedaViewModel) {
     if (Build.VERSION.SDK_INT < 33 || activity == null) {
         vm.setNotificationsEnabled(true)
         return
@@ -333,26 +331,18 @@ private fun enableNotificationsWithPermission(vm: PobedaViewModel) {
     val granted = ContextCompat.checkSelfPermission(
         activity, Manifest.permission.POST_NOTIFICATIONS,
     ) == PackageManager.PERMISSION_GRANTED
-    var requested by rememberSaveable { mutableStateOf(false) }
-    // Держим ссылку на самый свежий vm: колбэк срабатывает асинхронно после ответа системы.
-    val currentVm by rememberUpdatedState(vm)
-    LaunchedEffect(requested) {
-        if (requested) {
-            requested = false
-            activity.notifyPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
     if (granted) {
         vm.setNotificationsEnabled(true)
     } else {
-        activity.pendingNotifyCallback = { accepted -> currentVm.setNotificationsEnabled(accepted) }
-        requested = true
+        activity.pendingNotifyCallback = { accepted -> vm.setNotificationsEnabled(accepted) }
+        activity.notifyPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 }
 
 /** Строка управления уведомлениями «цена упала» внутри карточки фильтров (v2.4). */
 @Composable
 private fun NotificationsRow(state: UiState, vm: PobedaViewModel) {
+    val activity = LocalContext.current as? MainActivity
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -375,7 +365,7 @@ private fun NotificationsRow(state: UiState, vm: PobedaViewModel) {
             Switch(
                 checked = state.notificationsEnabled,
                 onCheckedChange = { on ->
-                    if (on) enableNotificationsWithPermission(vm)
+                    if (on) enableNotificationsWithPermission(activity, vm)
                     else vm.setNotificationsEnabled(false)
                 },
             )
