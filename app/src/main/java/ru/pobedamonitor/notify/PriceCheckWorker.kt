@@ -18,7 +18,7 @@ import java.time.LocalDate
 import java.util.concurrent.TimeUnit
 
 /**
- * v2.8: фоновая проверка цен (WorkManager, ~раз в сутки).
+ * v2.8: фоновая проверка цен (WorkManager); v2.11: интервал ~1 час.
  *
  * Загружает цены по избранным направлениям даже когда приложение закрыто,
  * пополняет историю цен и шлёт уведомления («падение» / «цель достигнута»).
@@ -96,17 +96,18 @@ class PriceCheckWorker(
     }
 
     companion object {
-        private const val WORK_NAME = "daily_price_check"
+        private const val WORK_NAME = "hourly_price_check"
         private const val BACKFILL_DAYS = 20L
 
-        /** Ставит/обновляет ежедневную фоновую проверку. Вызывается из UI при включении уведомлений. */
+        /** Ставит/обновляет ежечасную фоновую проверку (минимум для WorkManager — 1 час). */
         fun schedule(context: Context) {
-            val request = PeriodicWorkRequestBuilder<PriceCheckWorker>(24, TimeUnit.HOURS)
-                .setInitialDelay(30, TimeUnit.MINUTES)
+            val request = PeriodicWorkRequestBuilder<PriceCheckWorker>(1, TimeUnit.HOURS)
+                .setInitialDelay(5, TimeUnit.MINUTES)
                 .build()
+            // REPLACE: старые задания с интервалом 24 ч нужно пересоздать с новым интервалом
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
+                ExistingPeriodicWorkPolicy.REPLACE,
                 request,
             )
         }

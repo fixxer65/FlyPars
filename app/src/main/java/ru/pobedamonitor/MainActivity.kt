@@ -424,13 +424,14 @@ private fun NotificationsRow(state: UiState, vm: PobedaViewModel) {
                     fontWeight = FontWeight.Medium,
                 )
                 Text(
-                    "Только для ⭐ избранных направлений · не чаще раза в сутки",
+                    "Только для ⭐ избранных направлений · не чаще раза в 3 часа",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 // v2.8: WorkManager проверяет цены и шлёт уведомления даже с закрытым приложением.
+                // v2.11: интервал сокращён до ~1 часа.
                 Text(
-                    "Работает в фоне ~раз в сутки (без открытия приложения)",
+                    "Работает в фоне ~раз в час (без открытия приложения)",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -1884,7 +1885,7 @@ private fun PriceHistoryDialog(
                     Text(
                         "📈 Накоплено наблюдений: ${history.size}.\n\n" +
                             "Приложение запоминает минимальную цену каждый день при " +
-                            "обновлении списка. Открывайте его хотя бы раз в сутки — " +
+                            "обновлении списка (в т.ч. в фоне ~раз в час) — " +
                             "и через несколько дней здесь появится график.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

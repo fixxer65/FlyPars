@@ -77,6 +77,9 @@ class PriceDropNotifier(private val context: Context) {
         if (modeAmount && thresholdAmount <= 0) return // сумма не задана — не шлём
         val now = System.currentTimeMillis()
         val dayMillis = 24L * 60 * 60 * 1000
+        // v2.11: фоновая проверка теперь ~раз в час — анти-спам «падений» сокращён до 3 часов,
+        // чтобы реальное резкое снижение не терялось до следующего дня.
+        val dropCooldownMillis = 3L * 60 * 60 * 1000
         val favoriteCodes = favorites.load()
 
         routes.forEach { route ->
@@ -96,7 +99,11 @@ class PriceDropNotifier(private val context: Context) {
                 if (currentForTarget <= target) {
                     // не спамим: повторно только если цена снова выросла выше цели и затем упала
                     val wasAboveTarget = previousPrices[prevKey]?.let { it > target } ?: true
-                    if (wasAboveTarget && now - favorites.getLastTargetNotifyTime(code) >= dayMillis) {
+                    val lastNotify = favorites.getLastTargetNotifyTime(code)
+                    // v2.11: проверка теперь ~раз в час — дополнительно разрешаем «продержалась ниже цели»
+                    // напоминание не чаще раза в сутки, иначе ждём нового пересечения вниз.
+                    val heldBelowTooLong = now - lastNotify >= dayMillis
+                    if ((wasAboveTarget || heldBelowTooLong) && now - lastNotify >= 3L * 60 * 60 * 1000) {
                         favorites.setLastTargetNotifyTime(code, now)
                         notifyTarget(route, code, currentForTarget, target, targetRT)
                         return@forEach
@@ -112,8 +119,8 @@ class PriceDropNotifier(private val context: Context) {
             val triggered =
                 if (modeAmount) dropRub >= thresholdAmount else dropPercent >= thresholdPercent
             if (!triggered) return@forEach
-            // анти-спам: не чаще раза в сутки на направление
-            if (now - favorites.getLastNotifyTime(code) < dayMillis) return@forEach
+            // анти-спам: не чаще раза в 3 часа на направление (v2.11)
+            if (now - favorites.getLastNotifyTime(code) < dropCooldownMillis) return@forEach
 
             favorites.setLastNotifyTime(code, now)
             notifyOne(route, code, previous, current, dropPercent, dropRub, modeAmount, roundTrip)
