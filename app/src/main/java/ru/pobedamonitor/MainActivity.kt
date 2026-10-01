@@ -58,7 +58,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -412,20 +414,113 @@ private fun NotificationsRow(state: UiState, vm: PobedaViewModel) {
         }
         if (state.notificationsEnabled) {
             Spacer(Modifier.height(6.dp))
+
+            // v2.6: база цены — «только туда» или «туда и обратно».
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Порог: −${state.dropThresholdPercent}%",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.width(74.dp),
+                    "Считать цену:",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Slider(
-                    value = state.dropThresholdPercent.toFloat(),
-                    onValueChange = { vm.setDropThreshold(it.toInt()) },
-                    valueRange = 5f..30f,
-                    steps = 4,
-                    modifier = Modifier.weight(1f),
+                Spacer(Modifier.width(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                ) {
+                    FilterChip(
+                        selected = !state.notifyRoundTrip,
+                        onClick = { vm.setNotifyRoundTrip(false) },
+                        label = { Text("только туда", maxLines = 1) },
+                    )
+                    FilterChip(
+                        selected = state.notifyRoundTrip,
+                        onClick = { vm.setNotifyRoundTrip(true) },
+                        label = { Text("туда + обратно", maxLines = 1) },
+                    )
+                }
+            }
+            if (state.notifyRoundTrip) {
+                Text(
+                    "Обратные цены подгружаются в режиме выходных; без них следим за ценой «только туда».",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+
+            Spacer(Modifier.height(4.dp))
+
+            // v2.6: режим порога — проценты или конкретная сумма (₽).
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Реагировать на падение:",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = state.notifyMode == ru.pobedamonitor.data.FavoritesRepository.MODE_PERCENT,
+                        onClick = { vm.setNotifyMode(ru.pobedamonitor.data.FavoritesRepository.MODE_PERCENT) },
+                        label = { Text("в %", maxLines = 1) },
+                    )
+                    FilterChip(
+                        selected = state.notifyMode == ru.pobedamonitor.data.FavoritesRepository.MODE_AMOUNT,
+                        onClick = { vm.setNotifyMode(ru.pobedamonitor.data.FavoritesRepository.MODE_AMOUNT) },
+                        label = { Text("на сумму ₽", maxLines = 1) },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+
+            if (state.notifyMode == ru.pobedamonitor.data.FavoritesRepository.MODE_PERCENT) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Порог: −${state.dropThresholdPercent}%",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.width(74.dp),
+                    )
+                    Slider(
+                        value = state.dropThresholdPercent.toFloat(),
+                        onValueChange = { vm.setDropThreshold(it.toInt()) },
+                        valueRange = 5f..30f,
+                        steps = 4,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            } else {
+                var amountText by remember(state.dropThresholdAmount) {
+                    mutableStateOf(if (state.dropThresholdAmount > 0) state.dropThresholdAmount.toString() else "")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { raw ->
+                            val filtered = raw.filter { it.isDigit() }.take(7)
+                            amountText = filtered
+                            vm.setDropAmountRub(filtered.toIntOrNull() ?: 0)
+                        },
+                        label = { Text("Падение минимум на, ₽") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "₽",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(1000, 2000, 3000, 5000).forEach { preset ->
+                        AssistChip(
+                            onClick = { vm.setDropAmountRub(preset) },
+                            label = { Text(String.format(Locale("ru"), "%,d", preset).replace(',', ' ') + " ₽") },
+                        )
+                    }
+                }
             }
         }
     }

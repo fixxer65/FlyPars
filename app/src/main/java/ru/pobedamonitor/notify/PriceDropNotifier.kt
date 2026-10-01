@@ -28,25 +28,40 @@ class PriceDropNotifier(private val context: Context) {
 
     /**
      * Вызывается из ViewModel после обновления цен.
-     * [routes] — загруженные направления; [keyFor] возвращает ключ "hub-arrival".
+     * [routes] — загруженные направления; [keyFor] возвращает ключ "hub-arrival";
+     * [returnPrices] — обратные цены (дата -> entry) по тому же ключу (v2.6, для режима «туда и обратно»).
      */
     fun onPricesLoaded(
         routes: List<PobedaRepository.RoutePrices>,
         keyFor: (PobedaRepository.RoutePrices) -> String,
+        returnPrices: Map<String, Map<String, PobedaRepository.PriceEntry>> = emptyMap(),
     ) {
+        val roundTrip = favorites.notifyRoundTrip
+
+        // Лучшая цена направления с учётом выбранного режима («туда» или сумма пары).
+        fun bestPrice(route: PobedaRepository.RoutePrices): Int? {
+            val out = route.cheapest?.price ?: return null
+            if (!roundTrip) return out
+            val retMin = returnPrices[keyFor(route)]?.values?.minOfOrNull { it.price } ?: return out
+            return out + retMin
+        }
+
         // Снимаем предыдущие цены ДО записи новых, затем обновляем хранилище.
         val previousPrices = routes.associate { r ->
-            keyFor(r) to favorites.getLastKnownPrice(keyFor(r))
+            keyFor(r) to favorites.getLastKnownPrice(priceKey(keyFor(r), roundTrip))
         }
         routes.forEach { r ->
-            val price = r.cheapest?.price ?: return@forEach
-            favorites.saveLastKnownPrice(keyFor(r), price)
+            val price = bestPrice(r) ?: return@forEach
+            favorites.saveLastKnownPrice(priceKey(keyFor(r), roundTrip), price)
         }
 
         if (!favorites.notificationsEnabled) return
         if (!hasNotificationPermission()) return
 
-        val threshold = favorites.dropThresholdPercent
+        val modeAmount = favorites.notifyMode == FavoritesRepository.MODE_AMOUNT
+        val thresholdPercent = favorites.dropThresholdPercent
+        val thresholdAmount = favorites.dropThresholdAmount
+        if (modeAmount && thresholdAmount <= 0) return // сумма не задана — не шлём
         val now = System.currentTimeMillis()
         val dayMillis = 24L * 60 * 60 * 1000
         val favoriteCodes = favorites.load()
@@ -54,19 +69,26 @@ class PriceDropNotifier(private val context: Context) {
         routes.forEach { route ->
             val code = keyFor(route)
             if (code !in favoriteCodes) return@forEach // только избранные
-            val current = route.cheapest?.price ?: return@forEach
-            val previous = previousPrices[code] ?: return@forEach
+            val current = bestPrice(route) ?: return@forEach
+            val previous = previousPrices[priceKey(code, roundTrip)] ?: return@forEach
             if (previous <= 0 || current >= previous) return@forEach
 
-            val dropPercent = ((previous - current) * 100.0 / previous).toInt()
-            if (dropPercent < threshold) return@forEach
+            val dropRub = previous - current
+            val dropPercent = (dropRub * 100.0 / previous).toInt()
+            val triggered =
+                if (modeAmount) dropRub >= thresholdAmount else dropPercent >= thresholdPercent
+            if (!triggered) return@forEach
             // анти-спам: не чаще раза в сутки на направление
             if (now - favorites.getLastNotifyTime(code) < dayMillis) return@forEach
 
             favorites.setLastNotifyTime(code, now)
-            notifyOne(route, code, previous, current, dropPercent)
+            notifyOne(route, code, previous, current, dropPercent, dropRub, modeAmount, roundTrip)
         }
     }
+
+    /** Ключ хранилища последней цены зависит от режима — чтобы %/₽ и «туда»/«пара» не смешивались. */
+    private fun priceKey(code: String, roundTrip: Boolean): String =
+        if (roundTrip) "$code#rt" else code
 
     private fun notifyOne(
         route: PobedaRepository.RoutePrices,
@@ -74,10 +96,18 @@ class PriceDropNotifier(private val context: Context) {
         previous: Int,
         current: Int,
         dropPercent: Int,
+        dropRub: Int,
+        modeAmount: Boolean,
+        roundTrip: Boolean,
     ) {
         ensureChannel()
         val name = route.arrivalName.ifBlank { route.arrivalIata }
-        val title = "💸 $name: цена упала на $dropPercent%"
+        val rtLabel = if (roundTrip) " (туда+обратно)" else ""
+        val title = if (modeAmount) {
+            "💸 $name$rtLabel: подешевело на ${formatPrice(dropRub)}"
+        } else {
+            "💸 $name$rtLabel: цена упала на $dropPercent%"
+        }
         val text = "${formatPrice(previous)} → ${formatPrice(current)}"
 
         val tap = PendingIntent.getActivity(

@@ -73,6 +73,12 @@ data class UiState(
     val notificationsEnabled: Boolean = false,
     /** Порог падения цены для уведомления, % (v2.4). */
     val dropThresholdPercent: Int = ru.pobedamonitor.data.FavoritesRepository.DEFAULT_DROP_PERCENT,
+    /** v2.6: режим порога уведомлений — "percent" или "amount". */
+    val notifyMode: String = ru.pobedamonitor.data.FavoritesRepository.MODE_PERCENT,
+    /** v2.6: порог падения в рублях (для режима "amount"). */
+    val dropThresholdAmount: Int = 0,
+    /** v2.6: считать цену как сумму «туда и обратно» (иначе — только «туда»). */
+    val notifyRoundTrip: Boolean = false,
 ) {
     val toDate: LocalDate get() = fromDate.plusDays((daysCount - 1).coerceAtLeast(0).toLong())
 
@@ -259,6 +265,9 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
             favorites = favoritesRepository.load(),
             notificationsEnabled = favoritesRepository.notificationsEnabled,
             dropThresholdPercent = favoritesRepository.dropThresholdPercent,
+            notifyMode = favoritesRepository.notifyMode,
+            dropThresholdAmount = favoritesRepository.dropThresholdAmount,
+            notifyRoundTrip = favoritesRepository.notifyRoundTrip,
         )
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -376,6 +385,25 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
         _state.update { it.copy(dropThresholdPercent = v) }
     }
 
+    /** v2.6: режим порога уведомлений — MODE_PERCENT или MODE_AMOUNT. */
+    fun setNotifyMode(mode: String) {
+        favoritesRepository.notifyMode = mode
+        _state.update { it.copy(notifyMode = mode) }
+    }
+
+    /** v2.6: порог падения цены в рублях (режим «сумма»). */
+    fun setDropAmountRub(amount: Int) {
+        val v = amount.coerceIn(0, 1_000_000)
+        favoritesRepository.dropThresholdAmount = v
+        _state.update { it.copy(dropThresholdAmount = v) }
+    }
+
+    /** v2.6: считать ли цену как сумму «туда и обратно». */
+    fun setNotifyRoundTrip(enabled: Boolean) {
+        favoritesRepository.notifyRoundTrip = enabled
+        _state.update { it.copy(notifyRoundTrip = enabled) }
+    }
+
     /** Добавить/убрать направление из избранного, сохранить локально. */
     fun toggleFavorite(code: String) {
         val newSet = favoritesRepository.toggle(code)
@@ -477,9 +505,9 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
                 // Обновляем домашний виджет избранных направлений.
                 updateWidget()
 
-                // Уведомления «цена упала» по избранным направлениям (v2.4).
+                // Уведомления «цена упала» по избранным направлениям (v2.4, v2.6: сумма ₽ / туда+обратно).
                 runCatching {
-                    dropNotifier.onPricesLoaded(result.routes) { s.keyFor(it) }
+                    dropNotifier.onPricesLoaded(result.routes, { s.keyFor(it) }, returnPrices)
                 }
             } catch (e: Exception) {
                 _state.update {

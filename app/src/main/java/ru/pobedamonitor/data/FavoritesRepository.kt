@@ -88,6 +88,21 @@ class FavoritesRepository(context: Context) {
         get() = prefs.getInt(THRESHOLD_KEY, DEFAULT_DROP_PERCENT)
         set(value) = prefs.edit().putInt(THRESHOLD_KEY, value.coerceIn(1, 90)).apply()
 
+    /** v2.6: режим уведомления — "percent" (процент) или "amount" (конкретная сумма ₽). */
+    var notifyMode: String
+        get() = prefs.getString(NOTIFY_MODE_KEY, MODE_PERCENT) ?: MODE_PERCENT
+        set(value) = prefs.edit().putString(NOTIFY_MODE_KEY, value).apply()
+
+    /** v2.6: порог в рублях для режима "amount" (0 = не задан). */
+    var dropThresholdAmount: Int
+        get() = prefs.getInt(AMOUNT_KEY, 0)
+        set(value) = prefs.edit().putInt(AMOUNT_KEY, value.coerceIn(0, 1_000_000)).apply()
+
+    /** v2.6: базовая цена для уведомлений — только «туда» или «туда и обратно». */
+    var notifyRoundTrip: Boolean
+        get() = prefs.getBoolean(NOTIFY_RT_KEY, false)
+        set(value) = prefs.edit().putBoolean(NOTIFY_RT_KEY, value).apply()
+
     /** Флаг «уведомления включены», по умолчанию выключен (чтобы не спамить без разрешения). */
     var notificationsEnabled: Boolean
         get() = prefs.getBoolean(NOTIF_ENABLED_KEY, false)
@@ -100,6 +115,11 @@ class FavoritesRepository(context: Context) {
         private const val NOTIFY_PREFIX = "last_notify_"
         private const val THRESHOLD_KEY = "drop_threshold"
         private const val NOTIF_ENABLED_KEY = "notifications_enabled"
+        private const val NOTIFY_MODE_KEY = "notify_mode"
+        private const val AMOUNT_KEY = "drop_amount"
+        private const val NOTIFY_RT_KEY = "notify_roundtrip"
         const val DEFAULT_DROP_PERCENT = 10
+        const val MODE_PERCENT = "percent"
+        const val MODE_AMOUNT = "amount"
     }
 }
