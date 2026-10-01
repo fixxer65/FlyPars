@@ -70,6 +70,19 @@ class PriceDropNotifier(private val context: Context) {
             val code = keyFor(route)
             if (code !in favoriteCodes) return@forEach // только избранные
             val current = bestPrice(route) ?: return@forEach
+
+            // ---- v2.7: уведомление при достижении ЦЕЛЕВОЙ цены направления ----
+            val target = favorites.getTargetPrice(code)
+            if (target > 0 && current <= target) {
+                // не спамим: повторно только если цена снова выросла выше цели и затем упала
+                val wasAboveTarget = previousPrices[priceKey(code, roundTrip)]?.let { it > target } ?: true
+                if (wasAboveTarget && now - favorites.getLastTargetNotifyTime(code) >= dayMillis) {
+                    favorites.setLastTargetNotifyTime(code, now)
+                    notifyTarget(route, code, current, target, roundTrip)
+                    return@forEach
+                }
+            }
+
             val previous = previousPrices[priceKey(code, roundTrip)] ?: return@forEach
             if (previous <= 0 || current >= previous) return@forEach
 
@@ -89,6 +102,25 @@ class PriceDropNotifier(private val context: Context) {
     /** Ключ хранилища последней цены зависит от режима — чтобы %/₽ и «туда»/«пара» не смешивались. */
     private fun priceKey(code: String, roundTrip: Boolean): String =
         if (roundTrip) "$code#rt" else code
+
+    /** v2.7: уведомление «достигнута целевая цена». */
+    private fun notifyTarget(
+        route: PobedaRepository.RoutePrices,
+        code: String,
+        current: Int,
+        target: Int,
+        roundTrip: Boolean,
+    ) {
+        ensureChannel()
+        val name = route.arrivalName.ifBlank { route.arrivalIata }
+        val rtLabel = if (roundTrip) " (туда+обратно)" else ""
+        postNotification(
+            tagId = "target-$code".hashCode(),
+            title = "🎯 $name$rtLabel: цель достигнута!",
+            text = "Цена ${formatPrice(current)} — ниже вашей цели ${formatPrice(target)}. Не упустите!",
+            channel = CHANNEL_ID,
+        )
+    }
 
     private fun notifyOne(
         route: PobedaRepository.RoutePrices,
@@ -110,8 +142,13 @@ class PriceDropNotifier(private val context: Context) {
         }
         val text = "${formatPrice(previous)} → ${formatPrice(current)}"
 
+        postNotification("drop-$code".hashCode(), title, text, CHANNEL_ID, tapRequestCode = code.hashCode())
+    }
+
+    /** Общий конструктор и отправка уведомления (v2.7: переиспользуется для «цели»). */
+    private fun postNotification(tagId: Int, title: String, text: String, channel: String, tapRequestCode: Int = 0) {
         val tap = PendingIntent.getActivity(
-            context, code.hashCode(),
+            context, tapRequestCode,
             Intent(context, MainActivity::class.java).apply {
                 action = Intent.ACTION_VIEW
                 putExtra(EXTRA_OPEN_FAVORITES, true)
@@ -119,7 +156,7 @@ class PriceDropNotifier(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(text)
@@ -133,7 +170,7 @@ class PriceDropNotifier(private val context: Context) {
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify("drop-$code".hashCode(), notification)
+        manager.notify(tagId, notification)
     }
 
     private fun ensureChannel() {

@@ -79,6 +79,8 @@ data class UiState(
     val dropThresholdAmount: Int = 0,
     /** v2.6: считать цену как сумму «туда и обратно» (иначе — только «туда»). */
     val notifyRoundTrip: Boolean = false,
+    /** v2.7: целевые цены по направлениям ("hub-arrival" -> сумма ₽) — уведомление при достижении. */
+    val targetPrices: Map<String, Int> = emptyMap(),
 ) {
     val toDate: LocalDate get() = fromDate.plusDays((daysCount - 1).coerceAtLeast(0).toLong())
 
@@ -268,6 +270,7 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
             notifyMode = favoritesRepository.notifyMode,
             dropThresholdAmount = favoritesRepository.dropThresholdAmount,
             notifyRoundTrip = favoritesRepository.notifyRoundTrip,
+            targetPrices = favoritesRepository.allTargetPrices(),
         )
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -402,6 +405,17 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
     fun setNotifyRoundTrip(enabled: Boolean) {
         favoritesRepository.notifyRoundTrip = enabled
         _state.update { it.copy(notifyRoundTrip = enabled) }
+    }
+
+    /** v2.7: задать/снять целевую цену направления (0 = снять). */
+    fun setTargetPrice(code: String, priceRub: Int) {
+        val v = priceRub.coerceIn(0, 1_000_000)
+        favoritesRepository.setTargetPrice(code, v)
+        _state.update { s ->
+            val map = s.targetPrices.toMutableMap()
+            if (v > 0) map[code] = v else map.remove(code)
+            s.copy(targetPrices = map)
+        }
     }
 
     /** Добавить/убрать направление из избранного, сохранить локально. */

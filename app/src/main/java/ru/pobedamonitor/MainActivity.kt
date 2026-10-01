@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Refresh
@@ -1479,6 +1480,10 @@ private fun RouteCard(
     val hubName = PobedaRepository.HUBS.first { it.iata == route.hubIata }.name
     val cheapest = route.cheapest
     val sorted = route.prices.values.sortedBy { it.depDate }
+    // v2.7: целевая цена направления (уведомление при достижении)
+    val codeKey = "${route.hubIata}-${route.arrivalIata}"
+    val target = state.targetPrices[codeKey] ?: 0
+    var showTargetDialog by remember(codeKey) { mutableStateOf(false) }
 
     ElevatedCard(
         modifier = Modifier
@@ -1554,9 +1559,54 @@ private fun RouteCard(
             }
 
             // Прогноз выгодности по истории цен (v2.3): появляется после 3+ наблюдений.
-            state.assessments["${route.hubIata}-${route.arrivalIata}"]?.let { a ->
+            state.assessments[codeKey]?.let { a ->
                 Spacer(Modifier.height(10.dp))
                 PriceVerdictBadge(a)
+            }
+
+            // v2.7: целевая цена для избранных направлений — «🎯 дешевле N ₽» / «+ цель».
+            if (codeKey in state.favorites) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.animateContentSize(),
+                ) {
+                    if (target > 0) {
+                        Surface(
+                            onClick = { showTargetDialog = true },
+                            shape = RoundedCornerShape(50),
+                            color = if (cheapest != null && cheapest.price <= target)
+                                     MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surfaceVariant,
+                        ) {
+                            Text(
+                                text = if (cheapest != null && cheapest.price <= target)
+                                            "🎯 Цель достигнута · ${formatPrice(target)}"
+                                       else "🎯 Ждём цену ≤ ${formatPrice(target)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            )
+                        }
+                        TextButton(
+                            onClick = { vm.setTargetPrice(codeKey, 0) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        ) {
+                            Text("снять", style = MaterialTheme.typography.labelSmall)
+                        }
+                    } else {
+                        TextButton(
+                            onClick = { showTargetDialog = true },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        ) {
+                            Text(
+                                "🎯 задать целевую цену",
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
+                }
             }
 
             Spacer(Modifier.height(12.dp))
@@ -1601,6 +1651,107 @@ private fun RouteCard(
             }
         }
     }
+
+    // v2.7: диалог задания целевой цены направления
+    if (showTargetDialog) {
+        TargetPriceDialog(
+            routeName = "${hubName} → ${route.arrivalName.ifBlank { route.arrivalIata }}",
+            currentPrice = cheapest?.price,
+            initialTarget = target,
+            onDismiss = { showTargetDialog = false },
+            onSave = { price ->
+                vm.setTargetPrice(codeKey, price)
+                showTargetDialog = false
+            },
+        )
+    }
+}
+
+/**
+ * Диалог «Целевая цена» (v2.7): для избранного направления можно задать сумму —
+ * приложение пришлёт уведомление, когда минимальная цена станет ≤ цели.
+ */
+@Composable
+private fun TargetPriceDialog(
+    routeName: String,
+    currentPrice: Int?,
+    initialTarget: Int,
+    onDismiss: () -> Unit,
+    onSave: (Int) -> Unit,
+) {
+    var text by rememberSaveable { mutableStateOf(if (initialTarget > 0) initialTarget.toString() else "") }
+    val parsed = text.filter { it.isDigit() }.toIntOrNull() ?: 0
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("🎯 Целевая цена") },
+        text = {
+            Column {
+                Text(
+                    routeName,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Пришлём уведомление, когда цена станет не выше указанной.\n" +
+                        (currentPrice?.let { "Сейчас: ${formatPrice(it)}" } ?: ""),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it.filter { c -> c.isDigit() }.take(6) },
+                    label = { Text("Цена, ₽") },
+                    leadingIcon = { Icon(Icons.Default.AttachMoney, null) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(10_000, 15_000, 20_000, 25_000).forEach { preset ->
+                        Surface(
+                            onClick = { text = preset.toString() },
+                            shape = RoundedCornerShape(50),
+                            color = if (parsed == preset) MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surfaceVariant,
+                        ) {
+                            Text(
+                                formatPrice(preset),
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                            )
+                        }
+                    }
+                }
+                currentPrice?.let { cur ->
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        onClick = { text = ((cur * 9 / 10).coerceAtLeast(1000)).toString() },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    ) {
+                        Text("на 10% ниже текущей (${formatPrice(cur * 9 / 10)})",
+                            style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(parsed) }, enabled = parsed > 0) {
+                Text("Сохранить")
+            }
+        },
+        dismissButton = {
+            Row {
+                if (initialTarget > 0) {
+                    TextButton(onClick = { onSave(0) }) { Text("Убрать цель") }
+                }
+                TextButton(onClick = onDismiss) { Text("Отмена") }
+            }
+        },
+    )
 }
 
 private fun formatPrice(price: Int): String =

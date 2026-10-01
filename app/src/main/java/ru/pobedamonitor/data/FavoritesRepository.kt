@@ -103,6 +103,39 @@ class FavoritesRepository(context: Context) {
         get() = prefs.getBoolean(NOTIFY_RT_KEY, false)
         set(value) = prefs.edit().putBoolean(NOTIFY_RT_KEY, value).apply()
 
+    // ---- v2.7: целевая цена для отдельного избранного направления ----
+
+    /** Целевая цена направления, ₽ (0 = не задана). Задается на карточке ⭐. */
+    fun getTargetPrice(code: String): Int {
+        val v = prefs.getInt("$TARGET_PREFIX$code", 0)
+        return if (v > 0) v else 0
+    }
+
+    fun setTargetPrice(code: String, price: Int) {
+        val e = prefs.edit()
+        if (price > 0) e.putInt("$TARGET_PREFIX$code", price) else e.remove("$TARGET_PREFIX$code")
+        e.apply()
+    }
+
+    /** Все заданные целевые цены: ключ направления -> сумма ₽. */
+    fun allTargetPrices(): Map<String, Int> {
+        val result = mutableMapOf<String, Int>()
+        for ((k, v) in prefs.all) {
+            if (k.startsWith(TARGET_PREFIX) && v is Int && v > 0) {
+                result[k.removePrefix(TARGET_PREFIX)] = v
+            }
+        }
+        return result
+    }
+
+    /** Отметка времени последнего «целевого» уведомления (отдельный анти-спам от «падения»). */
+    fun getLastTargetNotifyTime(code: String): Long =
+        prefs.getLong("$TARGET_NOTIFIED_PREFIX$code", 0L)
+
+    fun setLastTargetNotifyTime(code: String, timeMillis: Long) {
+        prefs.edit().putLong("$TARGET_NOTIFIED_PREFIX$code", timeMillis).apply()
+    }
+
     /** Флаг «уведомления включены», по умолчанию выключен (чтобы не спамить без разрешения). */
     var notificationsEnabled: Boolean
         get() = prefs.getBoolean(NOTIF_ENABLED_KEY, false)
@@ -118,6 +151,8 @@ class FavoritesRepository(context: Context) {
         private const val NOTIFY_MODE_KEY = "notify_mode"
         private const val AMOUNT_KEY = "drop_amount"
         private const val NOTIFY_RT_KEY = "notify_roundtrip"
+        private const val TARGET_PREFIX = "target_price_"
+        private const val TARGET_NOTIFIED_PREFIX = "target_notified_"
         const val DEFAULT_DROP_PERCENT = 10
         const val MODE_PERCENT = "percent"
         const val MODE_AMOUNT = "amount"
