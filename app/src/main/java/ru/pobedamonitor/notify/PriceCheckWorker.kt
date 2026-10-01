@@ -69,6 +69,10 @@ class PriceCheckWorker(
 
         if (routes.isEmpty()) return@withContext Result.retry()
 
+        // v2.14: реальное время ВЫЛЕТА из расписания — используется в тексте уведомлений.
+        routes.clear()
+        routes += runCatching { repository.enrichWithDepartureTimes(routes) }.getOrDefault(routes.toList())
+
         // Пополняем историю дневных минимумов (для графика и прогноза).
         val keyFor: (PobedaRepository.RoutePrices) -> String = { "${it.hubIata}-${it.arrivalIata}" }
         val todayPrices = routes.mapNotNull { r ->

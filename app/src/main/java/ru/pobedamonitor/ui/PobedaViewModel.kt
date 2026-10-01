@@ -543,6 +543,12 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
                     )
                 }
 
+                // v2.14: подставляем реальное время ВЫЛЕТА из расписания Победы
+                // (best-offers отдаёт только длительность полёта; stdLocal timetable — вылет).
+                val enrichedRoutes = runCatching {
+                    repository.enrichWithDepartureTimes(result.routes)
+                }.getOrDefault(result.routes)
+
                 // Обратные билеты (режим «выходных» с включённым возвратом):
                 // для каждого направления собираем цены возврата в выбранные дни.
                 var returnPrices = emptyMap<String, Map<String, PobedaRepository.PriceEntry>>()
@@ -566,7 +572,7 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        routes = result.routes,
+                        routes = enrichedRoutes,
                         returnPrices = returnPrices,
                         errors = result.errors,
                         lastUpdated = java.time.LocalDateTime.now()
@@ -575,7 +581,7 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
                 }
 
                 // Погода в городах прилёта (параллельно загрузке цен, не блокирует UI).
-                val destCodes = result.routes.map { it.arrivalIata }.distinct()
+                val destCodes = enrichedRoutes.map { it.arrivalIata }.distinct()
                 if (destCodes.isNotEmpty()) {
                     val w = WeatherRepository.fetchWeather(destCodes)
                     if (w.isNotEmpty()) {
@@ -585,7 +591,7 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
 
                 // Сохраняем сегодняшние минимальные цены в историю и строим прогноз (v2.3).
                 runCatching {
-                    val todayPrices = result.routes.mapNotNull { r ->
+                    val todayPrices = enrichedRoutes.mapNotNull { r ->
                         r.cheapest?.price?.let { s.keyFor(r) to it }
                     }.toMap()
                     historyRepository.recordAll(todayPrices)
@@ -620,7 +626,7 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
                             { d -> d.dayOfWeek in s.returnDays }
                         } else null
                     dropNotifier.onPricesLoaded(
-                        result.routes, { s.keyFor(it) }, returnPrices, outFilter, retFilter,
+                        enrichedRoutes, { s.keyFor(it) }, returnPrices, outFilter, retFilter,
                     )
                 }
             } catch (e: Exception) {

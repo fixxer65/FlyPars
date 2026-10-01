@@ -269,6 +269,21 @@ class PobedaRepository {
     /** Кэш расписания: дата ISO -> ("откудаIATA-кудаIATA" -> HH:mm местного вылета). */
     private val timetableCache = java.util.concurrent.ConcurrentHashMap<String, Map<String, String>>()
 
+    /** Кэш «не удалось получить расписание на дату» — не долбить API при каждой загрузке. */
+    private val timetableMisses = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * v2.14: расписание Победы отдаёт данные только на ближайшие несколько дней;
+     * для дальней даты пробуем соседние (API иногда сдвигает окно на ±1 день).
+     */
+    private suspend fun fetchTimetableAround(date: LocalDate): Map<String, String> {
+        for (d in listOf(date, date.plusDays(1), date.minusDays(1))) {
+            val m = fetchTimetableDepartureTimes(d.format(isoFmt))
+            if (m.isNotEmpty()) return m
+        }
+        return emptyMap()
+    }
+
     /**
      * Возвращает карту «$from-$to» -> время вылета (HH:mm, местное время аэропорта)
      * на дату [dateIso] из официального расписания flypobeda.ru. Пустая карта —
@@ -277,7 +292,10 @@ class PobedaRepository {
     suspend fun fetchTimetableDepartureTimes(dateIso: String): Map<String, String> =
         withContext(Dispatchers.IO) {
             timetableCache.getOrPut(dateIso) {
-                runCatching {
+                // Дата вне окна расписания? Повторим попытку не раньше чем через 6 часов.
+                val missedAt = timetableMisses[dateIso] ?: 0L
+                if (System.currentTimeMillis() - missedAt < 6L * 60 * 60 * 1000) return@getOrPut emptyMap()
+                val map = runCatching {
                     val json = httpGetObject("$TIMETABLE_API?locale=ru&date=$dateIso")
                     val flights = json.optJSONArray("flights") ?: return@runCatching emptyMap()
                     val map = HashMap<String, String>(flights.length())
