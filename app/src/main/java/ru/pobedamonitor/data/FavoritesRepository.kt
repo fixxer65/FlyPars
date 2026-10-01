@@ -63,8 +63,43 @@ class FavoritesRepository(context: Context) {
         }.getOrDefault(emptyList())
     }
 
+    // ---- v2.4: уведомления «цена упала» ----
+
+    /** Сохраняет последнюю известную минимальную цену направления (для сравнения при следующих загрузках). */
+    fun saveLastKnownPrice(code: String, price: Int) {
+        prefs.edit().putInt("$PRICE_PREFIX$code", price).apply()
+    }
+
+    fun getLastKnownPrice(code: String): Int? {
+        val v = prefs.getInt("$PRICE_PREFIX$code", -1)
+        return if (v > 0) v else null
+    }
+
+    /** Отметка времени последнего отправленного уведомления об удешевлении (0 = не было). */
+    fun getLastNotifyTime(code: String): Long =
+        prefs.getLong("$NOTIFY_PREFIX$code", 0L)
+
+    fun setLastNotifyTime(code: String, timeMillis: Long) {
+        prefs.edit().putLong("$NOTIFY_PREFIX$code", timeMillis).apply()
+    }
+
+    /** Пользовательский порог падения цены (в %), по умолчанию [DEFAULT_DROP_PERCENT]. */
+    var dropThresholdPercent: Int
+        get() = prefs.getInt(THRESHOLD_KEY, DEFAULT_DROP_PERCENT)
+        set(value) = prefs.edit().putInt(THRESHOLD_KEY, value.coerceIn(1, 90)).apply()
+
+    /** Флаг «уведомления включены», по умолчанию выключен (чтобы не спамить без разрешения). */
+    var notificationsEnabled: Boolean
+        get() = prefs.getBoolean(NOTIF_ENABLED_KEY, false)
+        set(value) = prefs.edit().putBoolean(NOTIF_ENABLED_KEY, value).apply()
+
     companion object {
         private const val KEY = "favorite_routes"
         private const val SNAPSHOT_KEY = "favorite_snapshot"
+        private const val PRICE_PREFIX = "last_price_"
+        private const val NOTIFY_PREFIX = "last_notify_"
+        private const val THRESHOLD_KEY = "drop_threshold"
+        private const val NOTIF_ENABLED_KEY = "notifications_enabled"
+        const val DEFAULT_DROP_PERCENT = 10
     }
 }

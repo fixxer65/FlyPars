@@ -1,10 +1,16 @@
 package ru.pobedamonitor
 
+import android.Manifest
 import android.app.DatePickerDialog
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
@@ -75,10 +81,42 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // v2.4: если открыли приложение тапом по уведомлению «цена упала» —
+        // показываем сразу избранные направления.
+        if (intent?.getBooleanExtra(ru.pobedamonitor.notify.PriceDropNotifier.EXTRA_OPEN_FAVORITES, false) == true) {
+            pendingOpenFavorites = true
+        }
         setContent {
             PobedaMonitorTheme {
-                MainScreen()
+                MainScreen(
+                    openFavoritesRequested = pendingOpenFavorites,
+                    onFavoritesOpened = { pendingOpenFavorites = false },
+                )
             }
+        }
+    }
+
+    private var pendingOpenFavorites = false
+
+    /** Одноразовый запрос разрешения на уведомления (Android 13+). */
+    private val notifyPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        pendingNotifyCallback?.invoke(granted)
+        pendingNotifyCallback = null
+    }
+
+    var pendingNotifyCallback: ((Boolean) -> Unit)? = null
+
+    fun requestNotifyPermission() {
+        notifyPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // launchMode=singleTask: повторный тап по уведомлению приходит сюда.
+        if (intent.getBooleanExtra(ru.pobedamonitor.notify.PriceDropNotifier.EXTRA_OPEN_FAVORITES, false)) {
+            pendingOpenFavorites = true
         }
     }
 }
@@ -86,6 +124,8 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
+    openFavoritesRequested: Boolean = false,
+    onFavoritesOpened: () -> Unit = {},
     vm: PobedaViewModel = viewModel(
         factory = PobedaViewModel.factory(LocalContext.current),
     ),
@@ -93,6 +133,14 @@ fun MainScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val scroll = rememberTopAppBarState()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(scroll)
+
+    // v2.4: тап по уведомлению «цена упала» — переключаемся на избранные.
+    LaunchedEffect(openFavoritesRequested) {
+        if (openFavoritesRequested) {
+            vm.setListFilter(ListFilter.FAVORITES)
+            onFavoritesOpened()
+        }
+    }
 
     Scaffold(
         modifier = Modifier.background(screenBackgroundBrush()),
@@ -268,6 +316,82 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
                 } else {
                     WeekendsControls(state, vm)
                 }
+                Spacer(Modifier.height(6.dp))
+                NotificationsRow(state, vm)
+            }
+        }
+    }
+}
+
+/**
+ * Включает уведомления и запрашивает разрешение POST_NOTIFICATIONS (Android 13+).
+ * На более старых версиях разрешение не нужно — включаем сразу.
+ */
+@Composable
+private fun enableNotificationsWithPermission(vm: PobedaViewModel) {
+    val activity = LocalContext.current as? ComponentActivity
+    if (Build.VERSION.SDK_INT < 33 || activity == null) {
+        vm.setNotificationsEnabled(true)
+        return
+    }
+    val granted = ContextCompat.checkSelfPermission(
+        activity, Manifest.permission.POST_NOTIFICATIONS,
+    ) == PackageManager.PERMISSION_GRANTED
+    if (granted) {
+        vm.setNotificationsEnabled(true)
+    } else {
+        // Колбэк живёт в активити до ответа системы (launcher асинхронный).
+        activity.pendingNotifyCallback = { accepted -> vm.setNotificationsEnabled(accepted) }
+        activity.requestNotifyPermission()
+    }
+}
+
+/** Строка управления уведомлениями «цена упала» внутри карточки фильтров (v2.4). */
+@Composable
+private fun NotificationsRow(state: UiState, vm: PobedaViewModel) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "🔔",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Уведомлять о падении цены",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    "Только для ⭐ избранных направлений · не чаще раза в сутки",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = state.notificationsEnabled,
+                onCheckedChange = { on ->
+                    if (on) enableNotificationsWithPermission(vm)
+                    else vm.setNotificationsEnabled(false)
+                },
+            )
+        }
+        if (state.notificationsEnabled) {
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Порог: −${state.dropThresholdPercent}%",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.width(74.dp),
+                )
+                Slider(
+                    value = state.dropThresholdPercent.toFloat(),
+                    onValueChange = { vm.setDropThreshold(it.toInt()) },
+                    valueRange = 5f..30f,
+                    steps = 4,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }

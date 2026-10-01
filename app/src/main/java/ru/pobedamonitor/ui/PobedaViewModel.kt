@@ -69,6 +69,10 @@ data class UiState(
     val weather: Map<String, WeatherRepository.Weather> = emptyMap(),
     /** Прогноз выгодности по истории цен: "hub-arrival" -> Assessment (v2.3). */
     val assessments: Map<String, ru.pobedamonitor.data.PriceHistoryRepository.Assessment> = emptyMap(),
+    /** Уведомления «цена упала» включены (v2.4). */
+    val notificationsEnabled: Boolean = false,
+    /** Порог падения цены для уведомления, % (v2.4). */
+    val dropThresholdPercent: Int = ru.pobedamonitor.data.FavoritesRepository.DEFAULT_DROP_PERCENT,
 ) {
     val toDate: LocalDate get() = fromDate.plusDays((daysCount - 1).coerceAtLeast(0).toLong())
 
@@ -248,8 +252,15 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
     private val currencyRepository = CurrencyRepository()
     private val favoritesRepository = ru.pobedamonitor.data.FavoritesRepository(appContext)
     private val historyRepository = ru.pobedamonitor.data.PriceHistoryRepository(appContext)
+    private val dropNotifier = ru.pobedamonitor.notify.PriceDropNotifier(appContext)
 
-    private val _state = MutableStateFlow(UiState(favorites = favoritesRepository.load()))
+    private val _state = MutableStateFlow(
+        UiState(
+            favorites = favoritesRepository.load(),
+            notificationsEnabled = favoritesRepository.notificationsEnabled,
+            dropThresholdPercent = favoritesRepository.dropThresholdPercent,
+        )
+    )
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var fetchJob: Job? = null
@@ -352,6 +363,19 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
         _state.update { it.copy(listFilter = filter) }
     }
 
+    /** Включить/выключить уведомления «цена упала» (v2.4). */
+    fun setNotificationsEnabled(enabled: Boolean) {
+        favoritesRepository.notificationsEnabled = enabled
+        _state.update { it.copy(notificationsEnabled = enabled) }
+    }
+
+    /** Изменить порог падения цены для уведомлений, % (v2.4). */
+    fun setDropThreshold(percent: Int) {
+        val v = percent.coerceIn(1, 90)
+        favoritesRepository.dropThresholdPercent = v
+        _state.update { it.copy(dropThresholdPercent = v) }
+    }
+
     /** Добавить/убрать направление из избранного, сохранить локально. */
     fun toggleFavorite(code: String) {
         val newSet = favoritesRepository.toggle(code)
@@ -452,6 +476,11 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
 
                 // Обновляем домашний виджет избранных направлений.
                 updateWidget()
+
+                // Уведомления «цена упала» по избранным направлениям (v2.4).
+                runCatching {
+                    dropNotifier.onPricesLoaded(result.routes) { s.keyFor(it) }
+                }
             } catch (e: Exception) {
                 _state.update {
                     it.copy(isLoading = false, errors = it.errors + (e.message ?: "Ошибка сети"))
