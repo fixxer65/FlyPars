@@ -46,13 +46,25 @@ class PriceDropNotifier(private val context: Context) {
             return out + retMin
         }
 
-        // Снимаем предыдущие цены ДО записи новых, затем обновляем хранилище.
-        val previousPrices = routes.associate { r ->
-            keyFor(r) to favorites.getLastKnownPrice(priceKey(keyFor(r), roundTrip))
+        // v2.10: сумма «туда+обратно» для целевой цены независимо от глобального режима падений.
+        fun pairPrice(
+            route: PobedaRepository.RoutePrices,
+            returns: Map<String, Map<String, PobedaRepository.PriceEntry>>,
+            oneWay: Int,
+        ): Int {
+            val retMin = returns[keyFor(route)]?.values?.minOfOrNull { it.price } ?: return oneWay
+            return oneWay + retMin
+        }
+
+        // Снимаем предыдущие цены ДО записи новых, затем обновляем хранилище (оба ключа: «туда» и «пара»).
+        val previousPrices = routes.flatMap { r ->
+            listOf(priceKey(keyFor(r), false), priceKey(keyFor(r), true))
+                .associateWith { favorites.getLastKnownPrice(it) }
         }
         routes.forEach { r ->
-            val price = bestPrice(r) ?: return@forEach
-            favorites.saveLastKnownPrice(priceKey(keyFor(r), roundTrip), price)
+            val oneWay = r.cheapest?.price ?: return@forEach
+            favorites.saveLastKnownPrice(priceKey(keyFor(r), false), oneWay)
+            favorites.saveLastKnownPrice(priceKey(keyFor(r), true), pairPrice(r, returnPrices, oneWay))
         }
 
         if (!favorites.notificationsEnabled) return
@@ -72,14 +84,20 @@ class PriceDropNotifier(private val context: Context) {
             val current = bestPrice(route) ?: return@forEach
 
             // ---- v2.7: уведомление при достижении ЦЕЛЕВОЙ цены направления ----
+            // v2.10: цель может быть задана на «только туда» или на сумму «туда+обратно» — независимо от режима падений.
             val target = favorites.getTargetPrice(code)
-            if (target > 0 && current <= target) {
-                // не спамим: повторно только если цена снова выросла выше цели и затем упала
-                val wasAboveTarget = previousPrices[priceKey(code, roundTrip)]?.let { it > target } ?: true
-                if (wasAboveTarget && now - favorites.getLastTargetNotifyTime(code) >= dayMillis) {
-                    favorites.setLastTargetNotifyTime(code, now)
-                    notifyTarget(route, code, current, target, roundTrip)
-                    return@forEach
+            if (target > 0) {
+                val targetRT = favorites.isTargetRoundTrip(code)
+                val currentForTarget = if (targetRT) pairPrice(route, returnPrices, current) else current
+                val prevKey = priceKey(code, targetRT)
+                if (currentForTarget <= target) {
+                    // не спамим: повторно только если цена снова выросла выше цели и затем упала
+                    val wasAboveTarget = previousPrices[prevKey]?.let { it > target } ?: true
+                    if (wasAboveTarget && now - favorites.getLastTargetNotifyTime(code) >= dayMillis) {
+                        favorites.setLastTargetNotifyTime(code, now)
+                        notifyTarget(route, code, currentForTarget, target, targetRT)
+                        return@forEach
+                    }
                 }
             }
 

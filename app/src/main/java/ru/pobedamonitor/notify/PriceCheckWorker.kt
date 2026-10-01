@@ -64,7 +64,26 @@ class PriceCheckWorker(
         if (todayPrices.isNotEmpty()) history.recordAll(todayPrices)
 
         // Уведомления: тот же движок, что и в интерфейсе (v2.4/v2.6/v2.7).
-        runCatching { notifier.onPricesLoaded(routes, keyFor) }
+        // v2.10: если хотя бы у одной цели режим «туда+обратно» — догружаем обратные цены.
+        var returnPrices = emptyMap<String, Map<String, PobedaRepository.PriceEntry>>()
+        val rtTargets = favorites.allTargetRoundTrips()
+        if (favorites.notifyRoundTrip || rtTargets.isNotEmpty()) {
+            val needRt = routes.filter { r ->
+                favorites.notifyRoundTrip || keyFor(r) in rtTargets
+            }
+            returnPrices = kotlinx.coroutines.coroutineScope {
+                needRt.map { route ->
+                    kotlinx.coroutines.async {
+                        keyFor(route) to repository.fetchReturnPrices(
+                            hubIata = route.hubIata,
+                            arrivalIata = route.arrivalIata,
+                            dates = (today.plusDays(1)..today.plusDays(BACKFILL_DAYS)).toList(),
+                        )
+                    }
+                }.awaitAll().filter { it.second.isNotEmpty() }.toMap()
+            }
+        }
+        runCatching { notifier.onPricesLoaded(routes, keyFor, returnPrices) }
         Result.success()
     }
 

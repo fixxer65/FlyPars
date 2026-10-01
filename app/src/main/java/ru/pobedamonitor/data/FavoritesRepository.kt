@@ -111,9 +111,22 @@ class FavoritesRepository(context: Context) {
         return if (v > 0) v else 0
     }
 
-    fun setTargetPrice(code: String, price: Int) {
+    /**
+     * v2.10: флаг цели — true значит «сумма туда+обратно», false — «только туда».
+     * Хранится отдельным булевым ключом, совместимо со старыми целями (по умолчанию «туда»).
+     */
+    fun isTargetRoundTrip(code: String): Boolean =
+        prefs.getBoolean("$TARGET_RT_PREFIX$code", false)
+
+    fun setTargetPrice(code: String, price: Int, roundTrip: Boolean = false) {
         val e = prefs.edit()
-        if (price > 0) e.putInt("$TARGET_PREFIX$code", price) else e.remove("$TARGET_PREFIX$code")
+        if (price > 0) {
+            e.putInt("$TARGET_PREFIX$code", price)
+            e.putBoolean("$TARGET_RT_PREFIX$code", roundTrip)
+        } else {
+            e.remove("$TARGET_PREFIX$code")
+            e.remove("$TARGET_RT_PREFIX$code")
+        }
         e.apply()
     }
 
@@ -123,6 +136,17 @@ class FavoritesRepository(context: Context) {
         for ((k, v) in prefs.all) {
             if (k.startsWith(TARGET_PREFIX) && v is Int && v > 0) {
                 result[k.removePrefix(TARGET_PREFIX)] = v
+            }
+        }
+        return result
+    }
+
+    /** v2.10: какие цели заданы на сумму «туда+обратно». */
+    fun allTargetRoundTrips(): Set<String> {
+        val result = mutableSetOf<String>()
+        for ((k, v) in prefs.all) {
+            if (k.startsWith(TARGET_RT_PREFIX) && v == true) {
+                result += k.removePrefix(TARGET_RT_PREFIX)
             }
         }
         return result
@@ -152,6 +176,7 @@ class FavoritesRepository(context: Context) {
         private const val AMOUNT_KEY = "drop_amount"
         private const val NOTIFY_RT_KEY = "notify_roundtrip"
         private const val TARGET_PREFIX = "target_price_"
+        private const val TARGET_RT_PREFIX = "target_rt_"
         private const val TARGET_NOTIFIED_PREFIX = "target_notified_"
         const val DEFAULT_DROP_PERCENT = 10
         const val MODE_PERCENT = "percent"

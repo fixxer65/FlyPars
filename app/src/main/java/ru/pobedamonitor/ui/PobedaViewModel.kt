@@ -81,6 +81,8 @@ data class UiState(
     val notifyRoundTrip: Boolean = false,
     /** v2.7: целевые цены по направлениям ("hub-arrival" -> сумма ₽) — уведомление при достижении. */
     val targetPrices: Map<String, Int> = emptyMap(),
+    /** v2.10: направления, у которых цель задана на сумму «туда+обратно». */
+    val targetRoundTrips: Set<String> = emptySet(),
 ) {
     val toDate: LocalDate get() = fromDate.plusDays((daysCount - 1).coerceAtLeast(0).toLong())
 
@@ -279,6 +281,7 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
             dropThresholdAmount = favoritesRepository.dropThresholdAmount,
             notifyRoundTrip = favoritesRepository.notifyRoundTrip,
             targetPrices = favoritesRepository.allTargetPrices(),
+            targetRoundTrips = favoritesRepository.allTargetRoundTrips(),
         )
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -421,14 +424,16 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
         _state.update { it.copy(notifyRoundTrip = enabled) }
     }
 
-    /** v2.7: задать/снять целевую цену направления (0 = снять). */
-    fun setTargetPrice(code: String, priceRub: Int) {
+    /** v2.7: задать/снять целевую цену направления (0 = снять). v2.10: цель может быть на сумму «туда+обратно». */
+    fun setTargetPrice(code: String, priceRub: Int, roundTrip: Boolean = false) {
         val v = priceRub.coerceIn(0, 1_000_000)
-        favoritesRepository.setTargetPrice(code, v)
+        favoritesRepository.setTargetPrice(code, v, roundTrip)
         _state.update { s ->
             val map = s.targetPrices.toMutableMap()
-            if (v > 0) map[code] = v else map.remove(code)
-            s.copy(targetPrices = map)
+            val rts = s.targetRoundTrips.toMutableSet()
+            if (v > 0) { map[code] = v; if (roundTrip) rts += code else rts -= code }
+            else { map.remove(code); rts -= code }
+            s.copy(targetPrices = map, targetRoundTrips = rts)
         }
         // v2.8: цели проверяются и в фоне — ставим ежедневную задачу, пока есть хотя бы одна.
         if (v > 0 || favoritesRepository.notificationsEnabled) {

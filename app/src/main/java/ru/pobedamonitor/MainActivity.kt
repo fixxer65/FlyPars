@@ -1529,6 +1529,8 @@ private fun RouteCard(
     // v2.7: целевая цена направления (уведомление при достижении)
     val codeKey = "${route.hubIata}-${route.arrivalIata}"
     val target = state.targetPrices[codeKey] ?: 0
+    // v2.10: цель может считаться по сумме «туда+обратно»
+    val targetRT = codeKey in state.targetRoundTrips
     var showTargetDialog by remember(codeKey) { mutableStateOf(false) }
 
     ElevatedCard(
@@ -1628,8 +1630,8 @@ private fun RouteCard(
                         ) {
                             Text(
                                 text = if (cheapest != null && cheapest.price <= target)
-                                            "🎯 Цель достигнута · ${formatPrice(target)}"
-                                       else "🎯 Ждём цену ≤ ${formatPrice(target)}",
+                                            "🎯 Цель достигнута · ${formatPrice(target)}${if (targetRT) " ↨" else ""}"
+                                       else "🎯 Ждём цену ≤ ${formatPrice(target)}${if (targetRT) " ↨ туда+обратно" else ""}",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -1698,15 +1700,20 @@ private fun RouteCard(
         }
     }
 
-    // v2.7: диалог задания целевой цены направления
+    // v2.7: диалог задания целевой цены направления (v2.10: выбор «туда» / «туда+обратно»)
     if (showTargetDialog) {
+        val pairPreview: Int? = cheapest?.price?.let { out ->
+            state.returnPrices[codeKey]?.values?.minOfOrNull { it.price }?.let { out + it }
+        }
         TargetPriceDialog(
             routeName = "${hubName} → ${route.arrivalName.ifBlank { route.arrivalIata }}",
             currentPrice = cheapest?.price,
+            pairPrice = pairPreview,
             initialTarget = target,
+            initialRoundTrip = targetRT,
             onDismiss = { showTargetDialog = false },
-            onSave = { price ->
-                vm.setTargetPrice(codeKey, price)
+            onSave = { price, roundTrip ->
+                vm.setTargetPrice(codeKey, price, roundTrip)
                 showTargetDialog = false
             },
         )
@@ -1716,16 +1723,20 @@ private fun RouteCard(
 /**
  * Диалог «Целевая цена» (v2.7): для избранного направления можно задать сумму —
  * приложение пришлёт уведомление, когда минимальная цена станет ≤ цели.
+ * v2.10: можно выбрать базу цели — «только туда» или сумму «туда+обратно».
  */
 @Composable
 private fun TargetPriceDialog(
     routeName: String,
     currentPrice: Int?,
+    pairPrice: Int?,
     initialTarget: Int,
+    initialRoundTrip: Boolean,
     onDismiss: () -> Unit,
-    onSave: (Int) -> Unit,
+    onSave: (Int, Boolean) -> Unit,
 ) {
     var text by rememberSaveable { mutableStateOf(if (initialTarget > 0) initialTarget.toString() else "") }
+    var roundTrip by rememberSaveable { mutableStateOf(initialRoundTrip) }
     val parsed = text.filter { it.isDigit() }.toIntOrNull() ?: 0
 
     AlertDialog(
@@ -1741,15 +1752,46 @@ private fun TargetPriceDialog(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "Пришлём уведомление, когда цена станет не выше указанной.\n" +
-                        (currentPrice?.let { "Сейчас: ${formatPrice(it)}" } ?: ""),
+                        (currentPrice?.let { "Сейчас (туда): ${formatPrice(it)}" } ?: ""),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(10.dp))
+                // v2.10: выбор базы цели — «только туда» / «туда+обратно»
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(false to "✈️ только туда", true to "↨ туда + обратно").forEach { (rt, label) ->
+                        Surface(
+                            onClick = { roundTrip = rt },
+                            shape = RoundedCornerShape(50),
+                            color = if (roundTrip == rt) MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surfaceVariant,
+                        ) {
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (roundTrip == rt) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            )
+                        }
+                    }
+                }
+                if (roundTrip) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        pairPrice?.let {
+                            "Сейчас туда+обратно ≈ ${formatPrice(it)}. " +
+                                "Обратные цены обновляются в режиме «выходные»."
+                        } ?: "Обратных цен пока нет — включите режим «выходные» с возвратом, " +
+                              "чтобы сумма туда+обратно считалась. До тех пор цель проверяется по цене «только туда».",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it.filter { c -> c.isDigit() }.take(6) },
-                    label = { Text("Цена, ₽") },
+                    label = { Text(if (roundTrip) "Сумма туда+обратно, ₽" else "Цена, ₽") },
                     leadingIcon = { Icon(Icons.Default.AttachMoney, null) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
@@ -1757,7 +1799,9 @@ private fun TargetPriceDialog(
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(10_000, 15_000, 20_000, 25_000).forEach { preset ->
+                    val presets = if (roundTrip) listOf(20_000, 30_000, 40_000, 50_000)
+                                  else listOf(10_000, 15_000, 20_000, 25_000)
+                    presets.forEach { preset ->
                         Surface(
                             onClick = { text = preset.toString() },
                             shape = RoundedCornerShape(50),
@@ -1772,7 +1816,8 @@ private fun TargetPriceDialog(
                         }
                     }
                 }
-                currentPrice?.let { cur ->
+                val base = if (roundTrip) pairPrice else currentPrice
+                base?.let { cur ->
                     Spacer(Modifier.height(8.dp))
                     TextButton(
                         onClick = { text = ((cur * 9 / 10).coerceAtLeast(1000)).toString() },
@@ -1785,14 +1830,14 @@ private fun TargetPriceDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(parsed) }, enabled = parsed > 0) {
+            TextButton(onClick = { onSave(parsed, roundTrip) }, enabled = parsed > 0) {
                 Text("Сохранить")
             }
         },
         dismissButton = {
             Row {
                 if (initialTarget > 0) {
-                    TextButton(onClick = { onSave(0) }) { Text("Убрать цель") }
+                    TextButton(onClick = { onSave(0, false) }) { Text("Убрать цель") }
                 }
                 TextButton(onClick = onDismiss) { Text("Отмена") }
             }

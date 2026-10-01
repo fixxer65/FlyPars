@@ -1,49 +1,65 @@
-To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.7/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
-Daemon will be stopped at the end of the build 
-> Task :app:preBuild UP-TO-DATE
-> Task :app:preDebugBuild UP-TO-DATE
-> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
-> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
-> Task :app:checkDebugAarMetadata UP-TO-DATE
-> Task :app:generateDebugResValues UP-TO-DATE
-> Task :app:mapDebugSourceSetPaths
-> Task :app:generateDebugResources
-> Task :app:packageDebugResources
-> Task :app:mergeDebugResources
-> Task :app:parseDebugLocalResources
-> Task :app:createDebugCompatibleScreenManifests
-> Task :app:extractDeepLinksDebug UP-TO-DATE
-> Task :app:processDebugMainManifest
-> Task :app:processDebugManifest
-> Task :app:processDebugManifestForPackage
-> Task :app:javaPreCompileDebug UP-TO-DATE
-> Task :app:mergeDebugShaders UP-TO-DATE
-> Task :app:compileDebugShaders NO-SOURCE
-> Task :app:generateDebugAssets UP-TO-DATE
-> Task :app:mergeDebugAssets UP-TO-DATE
-> Task :app:compressDebugAssets UP-TO-DATE
-> Task :app:desugarDebugFileDependencies UP-TO-DATE
-> Task :app:checkDebugDuplicateClasses UP-TO-DATE
-> Task :app:mergeDebugStartupProfile UP-TO-DATE
-> Task :app:mergeExtDexDebug UP-TO-DATE
-> Task :app:mergeLibDexDebug UP-TO-DATE
-> Task :app:mergeDebugJniLibFolders UP-TO-DATE
-> Task :app:mergeDebugNativeLibs UP-TO-DATE
-> Task :app:stripDebugDebugSymbols UP-TO-DATE
-> Task :app:validateSigningDebug UP-TO-DATE
-> Task :app:writeDebugAppMetadata UP-TO-DATE
-> Task :app:writeDebugSigningConfigVersions UP-TO-DATE
-> Task :app:processDebugResources
-> Task :app:compileDebugKotlin
-> Task :app:compileDebugJavaWithJavac NO-SOURCE
-> Task :app:dexBuilderDebug
-> Task :app:mergeDebugGlobalSynthetics UP-TO-DATE
-> Task :app:processDebugJavaRes UP-TO-DATE
-> Task :app:mergeDebugJavaResource UP-TO-DATE
-> Task :app:mergeProjectDexDebug
-> Task :app:packageDebug
-> Task :app:createDebugApkListingFileRedirect
-> Task :app:assembleDebug
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceCheckWorker.kt:75:24 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceCheckWorker.kt:75:28 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceCheckWorker.kt:76:40 Unresolved reference 'async'.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceCheckWorker.kt:77:53 Suspension functions can only be called within coroutine body.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceCheckWorker.kt:80:88 Unresolved reference 'toList'.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceCheckWorker.kt:83:19 Unresolved reference 'awaitAll'.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceCheckWorker.kt:83:37 Overload resolution ambiguity between candidates:
+fun <T> Array<out T>.isNotEmpty(): Boolean
+fun BooleanArray.isNotEmpty(): Boolean
+fun ByteArray.isNotEmpty(): Boolean
+fun CharArray.isNotEmpty(): Boolean
+fun DoubleArray.isNotEmpty(): Boolean
+fun FloatArray.isNotEmpty(): Boolean
+fun IntArray.isNotEmpty(): Boolean
+fun LongArray.isNotEmpty(): Boolean
+fun ShortArray.isNotEmpty(): Boolean
+fun <T> Collection<T>.isNotEmpty(): Boolean
+fun <K, V> Map<out K, V>.isNotEmpty(): Boolean
+fun CharSequence.isNotEmpty(): Boolean
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceCheckWorker.kt:83:39 Unresolved reference 'it'.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceCheckWorker.kt:83:64 Overload resolution ambiguity between candidates:
+fun <K, V> Array<out Pair<K, V>>.toMap(): Map<K, V>
+fun <K, V> Iterable<Pair<K, V>>.toMap(): Map<K, V>
+fun <K, V> Map<out K, V>.toMap(): Map<K, V>
+fun <K, V> Sequence<Pair<K, V>>.toMap(): Map<K, V>
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceDropNotifier.kt:60:37 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceDropNotifier.kt:61:13 Argument type mismatch: actual type is 'kotlin.collections.Map<K, V>', but 'kotlin.collections.Iterable<R>' was expected.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceDropNotifier.kt:95:42 Argument type mismatch: actual type is 'R?', but 'K?' was expected.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceDropNotifier.kt:95:57 Argument type mismatch: actual type is 'kotlin.String', but 'kotlin.Int' was expected.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceDropNotifier.kt:95:67 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceDropNotifier.kt:95:67 Unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+fun <T, R> T.let(block: (T) -> R): R
+    [R|Contract description]
+     <
+        CallsInPlace(block, EXACTLY_ONCE)
+    >
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceDropNotifier.kt:95:71 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceDropNotifier.kt:95:76 'operator' modifier is required on 'FirNamedFunctionSymbol kotlin/compareTo' in 'compareTo'.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceDropNotifier.kt:95:90 Argument type mismatch: actual type is 'kotlin.Boolean', but 'K' was expected.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceDropNotifier.kt:104:43 Argument type mismatch: actual type is 'kotlin.String', but 'kotlin.Int' was expected.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceDropNotifier.kt:105:26 'operator' modifier is required on 'FirNamedFunctionSymbol kotlin/compareTo' in 'compareTo'.
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceDropNotifier.kt:107:36 Overload resolution ambiguity between candidates:
+fun <T> Iterable<T>.minus(element: T): List<T>
+fun <K, V> Map<out K, V>.minus(key: K): Map<K, V>
+fun <T> Set<T>.minus(element: T): Set<T>
+fun <T> Sequence<T>.minus(element: T): Sequence<T>
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceDropNotifier.kt:108:40 None of the following candidates is applicable:
+fun BigDecimal.times(other: BigDecimal): BigDecimal
+fun BigInteger.times(other: BigInteger): BigInteger
+e: file:///workspace/app/src/main/java/ru/pobedamonitor/notify/PriceDropNotifier.kt:110:41 'operator' modifier is required on 'FirNamedFunctionSymbol kotlin/compareTo' in 'compareTo'.
 
-BUILD SUCCESSFUL in 1m 31s
-36 actionable tasks: 15 executed, 21 up-to-date
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 1m 1s
