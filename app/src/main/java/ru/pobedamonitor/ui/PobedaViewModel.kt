@@ -67,6 +67,8 @@ data class UiState(
     val rateError: String? = null,
     /** Погода в городах прилёта: IATA -> Weather. */
     val weather: Map<String, WeatherRepository.Weather> = emptyMap(),
+    /** Прогноз выгодности по истории цен: "hub-arrival" -> Assessment (v2.3). */
+    val assessments: Map<String, ru.pobedamonitor.data.PriceHistoryRepository.Assessment> = emptyMap(),
 ) {
     val toDate: LocalDate get() = fromDate.plusDays((daysCount - 1).coerceAtLeast(0).toLong())
 
@@ -245,6 +247,7 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
     private val repository = PobedaRepository()
     private val currencyRepository = CurrencyRepository()
     private val favoritesRepository = ru.pobedamonitor.data.FavoritesRepository(appContext)
+    private val historyRepository = ru.pobedamonitor.data.PriceHistoryRepository(appContext)
 
     private val _state = MutableStateFlow(UiState(favorites = favoritesRepository.load()))
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -433,6 +436,18 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
                     if (w.isNotEmpty()) {
                         _state.update { it.copy(weather = it.weather + w) }
                     }
+                }
+
+                // Сохраняем сегодняшние минимальные цены в историю и строим прогноз (v2.3).
+                runCatching {
+                    val todayPrices = result.routes.mapNotNull { r ->
+                        r.cheapest?.price?.let { s.keyFor(r) to it }
+                    }.toMap()
+                    historyRepository.recordAll(todayPrices)
+                    val assessments = todayPrices.mapNotNull { (code, price) ->
+                        historyRepository.assess(code, price)?.let { code to it }
+                    }.toMap()
+                    _state.update { it.copy(assessments = assessments) }
                 }
 
                 // Обновляем домашний виджет избранных направлений.

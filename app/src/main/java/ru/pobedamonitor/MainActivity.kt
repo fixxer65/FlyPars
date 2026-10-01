@@ -1260,6 +1260,12 @@ private fun RouteCard(
                 }
             }
 
+            // Прогноз выгодности по истории цен (v2.3): появляется после 3+ наблюдений.
+            state.assessments["${route.hubIata}-${route.arrivalIata}"]?.let { a ->
+                Spacer(Modifier.height(10.dp))
+                PriceVerdictBadge(a)
+            }
+
             Spacer(Modifier.height(12.dp))
 
             // Цены по дням — горизонтальная лента «капсул»
@@ -1306,6 +1312,55 @@ private fun RouteCard(
 
 private fun formatPrice(price: Int): String =
     String.format(Locale("ru"), "%,d", price).replace(',', ' ') + " ₽"
+
+/**
+ * Бейдж прогноза выгодности (v2.3): сравнивает текущую минимальную цену
+ * с медианой предыдущих наблюдений истории цен.
+ */
+@Composable
+private fun PriceVerdictBadge(a: ru.pobedamonitor.data.PriceHistoryRepository.Assessment) {
+    val v = a.verdict
+    val container = when (v) {
+        ru.pobedamonitor.data.PriceHistoryRepository.Verdict.GOOD -> Color(0xFF1B5E20).copy(alpha = 0.14f)
+        ru.pobedamonitor.data.PriceHistoryRepository.Verdict.BAD -> Color(0xFFB71C1C).copy(alpha = 0.12f)
+        ru.pobedamonitor.data.PriceHistoryRepository.Verdict.NEUTRAL -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val content = when (v) {
+        ru.pobedamonitor.data.PriceHistoryRepository.Verdict.GOOD -> Color(0xFF1B5E20)
+        ru.pobedamonitor.data.PriceHistoryRepository.Verdict.BAD -> Color(0xFFB71C1C)
+        ru.pobedamonitor.data.PriceHistoryRepository.Verdict.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val icon = when (v) {
+        ru.pobedamonitor.data.PriceHistoryRepository.Verdict.GOOD -> "▼"
+        ru.pobedamonitor.data.PriceHistoryRepository.Verdict.BAD -> "▲"
+        ru.pobedamonitor.data.PriceHistoryRepository.Verdict.NEUTRAL -> "≈"
+    }
+    val title = when (v) {
+        ru.pobedamonitor.data.PriceHistoryRepository.Verdict.GOOD -> "Выгодно: ниже обычной цены"
+        ru.pobedamonitor.data.PriceHistoryRepository.Verdict.BAD -> "Дорого: выше обычной цены"
+        ru.pobedamonitor.data.PriceHistoryRepository.Verdict.NEUTRAL -> "Обычная цена"
+    }
+    val absDiff = kotlin.math.abs(a.diffPercent)
+    val subtitle = when (v) {
+        ru.pobedamonitor.data.PriceHistoryRepository.Verdict.NEUTRAL ->
+            "медиана ${formatPrice(a.median)}"
+        else ->
+            "$absDiff% от медианы ${formatPrice(a.median)}"
+    }
+    Surface(color = container, shape = RoundedCornerShape(12.dp)) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(icon, color = content, fontWeight = FontWeight.ExtraBold)
+            Column {
+                Text(title, style = MaterialTheme.typography.labelLarge, color = content, fontWeight = FontWeight.Bold)
+                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = content.copy(alpha = 0.85f))
+            }
+        }
+    }
+}
 
 /** Температура в формате «+18°C» / «−5°C». */
 private fun formatTemp(tempC: Double): String {
