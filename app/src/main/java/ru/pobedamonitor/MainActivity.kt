@@ -99,7 +99,7 @@ class MainActivity : ComponentActivity() {
     private var pendingOpenFavorites = false
 
     /** Одноразовый запрос разрешения на уведомления (Android 13+). */
-    private val notifyPermissionLauncher = registerForActivityResult(
+    val notifyPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         pendingNotifyCallback?.invoke(granted)
@@ -107,10 +107,6 @@ class MainActivity : ComponentActivity() {
     }
 
     var pendingNotifyCallback: ((Boolean) -> Unit)? = null
-
-    fun requestNotifyPermission() {
-        notifyPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-    }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -329,7 +325,7 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
  */
 @Composable
 private fun enableNotificationsWithPermission(vm: PobedaViewModel) {
-    val activity = LocalContext.current as? ComponentActivity
+    val activity = LocalContext.current as? MainActivity
     if (Build.VERSION.SDK_INT < 33 || activity == null) {
         vm.setNotificationsEnabled(true)
         return
@@ -337,12 +333,20 @@ private fun enableNotificationsWithPermission(vm: PobedaViewModel) {
     val granted = ContextCompat.checkSelfPermission(
         activity, Manifest.permission.POST_NOTIFICATIONS,
     ) == PackageManager.PERMISSION_GRANTED
+    var requested by rememberSaveable { mutableStateOf(false) }
+    // Держим ссылку на самый свежий vm: колбэк срабатывает асинхронно после ответа системы.
+    val currentVm by rememberUpdatedState(vm)
+    LaunchedEffect(requested) {
+        if (requested) {
+            requested = false
+            activity.notifyPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     if (granted) {
         vm.setNotificationsEnabled(true)
     } else {
-        // Колбэк живёт в активити до ответа системы (launcher асинхронный).
-        activity.pendingNotifyCallback = { accepted -> vm.setNotificationsEnabled(accepted) }
-        activity.requestNotifyPermission()
+        activity.pendingNotifyCallback = { accepted -> currentVm.setNotificationsEnabled(accepted) }
+        requested = true
     }
 }
 

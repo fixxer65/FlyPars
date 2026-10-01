@@ -1,10 +1,9 @@
-# Build artifacts
-build/
-app/build/
+# Gradle
+.gradle/
 
-# Gradle caches and metadata
-.gradle/node_modules/
+# Build artifacts and logs
+build.lognode_modules/
 .next/
 dist/
+build/
 *.log
-node_modules/
