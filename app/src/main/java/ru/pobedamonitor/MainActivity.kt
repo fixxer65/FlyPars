@@ -31,6 +31,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.rememberDatePickerState
@@ -124,28 +126,6 @@ fun MainScreen(vm: PobedaViewModel = viewModel()) {
                 }
             }
         },
-        floatingActionButton = {
-            // Большая «пухлая» кнопка обновления с тенью
-            ExtendedFloatingActionButton(
-                onClick = { vm.refreshRate(); vm.refresh() },
-                expanded = !state.isLoading,
-                icon = {
-                    if (state.isLoading) {
-                        CircularProgressIndicator(
-                            Modifier.size(20.dp),
-                            strokeWidth = 2.5.dp,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                    } else {
-                        Icon(Icons.Default.Refresh, contentDescription = null)
-                    }
-                },
-                text = { Text("Обновить") },
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                shape = CircleShape,
-            )
-        },
     ) { innerPadding ->
         Column(
             Modifier
@@ -164,7 +144,7 @@ fun MainScreen(vm: PobedaViewModel = viewModel()) {
                 visible.isEmpty() && !state.isLoading -> EmptyBlock(state)
                 else -> {
                     ResultsHeader(state, visible)
-                    RouteList(state, visible, scrollBehavior)
+                    RefreshableResults(vm, state, visible, scrollBehavior)
                 }
             }
         }
@@ -738,6 +718,23 @@ private fun DayRow(
 }
 
 /** Шапка результатов: количество направлений + лучшая цена периода. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RefreshableResults(
+    vm: PobedaViewModel,
+    state: UiState,
+    visible: List<PobedaRepository.RoutePrices>,
+    scrollBehavior: TopAppBarScrollBehavior?,
+) {
+    PullToRefreshBox(
+        isRefreshing = state.isLoading,
+        onRefresh = { vm.refreshRate(); vm.refresh() },
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        RouteList(state, visible, scrollBehavior)
+    }
+}
+
 @Composable
 private fun ResultsHeader(state: UiState, visible: List<PobedaRepository.RoutePrices>) {
     val bestTotal = state.bestPairTotal(state.weekendDepartureDates())
@@ -762,6 +759,11 @@ private fun ResultsHeader(state: UiState, visible: List<PobedaRepository.RoutePr
                 subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "Потяните вниз, чтобы обновить ↓",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
             )
         }
         if (state.isLoading) {
@@ -800,7 +802,7 @@ private fun EmptyBlock(state: UiState) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(
             if (state.errors.isNotEmpty())
-                "Не удалось загрузить цены.\nПроверьте интернет и нажмите ⟳."
+                "Не удалось загрузить цены.\nПроверьте интернет и\nпотяните список вниз для обновления."
             else "Нет предложений на выбранные даты.",
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.bodyLarge,
@@ -823,7 +825,7 @@ private fun RouteList(
         modifier = if (scrollBehavior != null)
             Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
         else Modifier,
-        contentPadding = PaddingValues(top = 2.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(top = 2.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (state.errors.isNotEmpty()) {
