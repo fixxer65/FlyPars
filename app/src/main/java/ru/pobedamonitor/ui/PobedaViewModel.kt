@@ -600,7 +600,28 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
 
                 // Уведомления «цена упала» по избранным направлениям (v2.4, v2.6: сумма ₽ / туда+обратно).
                 runCatching {
-                    dropNotifier.onPricesLoaded(result.routes, { s.keyFor(it) }, returnPrices)
+                    // v2.14: сохраняем выбор дней недели режима «выходных», чтобы фоновая
+                    // проверка слала уведомления только по выбранным датам, как и на экране.
+                    if (s.mode == SearchMode.WEEKENDS && s.outboundDays.isNotEmpty()) {
+                        favoritesRepository.notifyOutboundDays = s.outboundDays
+                        favoritesRepository.notifyReturnEnabled = s.returnEnabled
+                        favoritesRepository.notifyReturnDays = s.returnDays
+                    } else {
+                        favoritesRepository.notifyOutboundDays = emptySet()
+                        favoritesRepository.notifyReturnEnabled = false
+                        favoritesRepository.notifyReturnDays = emptySet()
+                    }
+                    val outFilter: ((java.time.LocalDate) -> Boolean)? =
+                        if (s.mode == SearchMode.WEEKENDS && s.outboundDays.isNotEmpty()) {
+                            { d -> d.dayOfWeek in s.outboundDays }
+                        } else null
+                    val retFilter: ((java.time.LocalDate) -> Boolean)? =
+                        if (s.mode == SearchMode.WEEKENDS && s.returnEnabled && s.returnDays.isNotEmpty()) {
+                            { d -> d.dayOfWeek in s.returnDays }
+                        } else null
+                    dropNotifier.onPricesLoaded(
+                        result.routes, { s.keyFor(it) }, returnPrices, outFilter, retFilter,
+                    )
                 }
             } catch (e: Exception) {
                 _state.update {

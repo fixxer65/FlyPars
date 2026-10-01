@@ -13,6 +13,7 @@ import ru.pobedamonitor.MainActivity
 import ru.pobedamonitor.R
 import ru.pobedamonitor.data.FavoritesRepository
 import ru.pobedamonitor.data.PobedaRepository
+import java.time.LocalDate
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -37,14 +38,36 @@ class PriceDropNotifier(private val context: Context) {
         routes: List<PobedaRepository.RoutePrices>,
         keyFor: (PobedaRepository.RoutePrices) -> String,
         returnPrices: Map<String, Map<String, PobedaRepository.PriceEntry>> = emptyMap(),
+        /**
+         * v2.14: предикат «разрешённой даты» для уведомлений «туда». В режиме
+         * «выходных» UI/воркер передают фильтр по выбранным дням недели вылета —
+         * уведомления считаются только по датам из выборки пользователя.
+         * null = учитывать все загруженные даты (обычный режим).
+         */
+        dateFilter: ((LocalDate) -> Boolean)? = null,
+        /** v2.14: то же для обратных дат (выбранные дни возврата). null = все. */
+        returnDateFilter: ((LocalDate) -> Boolean)? = null,
     ) {
         val roundTrip = favorites.notifyRoundTrip
 
+        /** v2.14: лучшая цена «туда» с учётом фильтра дней, если он задан. */
+        fun routeBest(route: PobedaRepository.RoutePrices): PobedaRepository.PriceEntry? =
+            if (dateFilter != null) route.cheapestFiltered(dateFilter) else route.cheapest
+
+        /** v2.14: минимальная обратная цена с учётом фильтра дней возврата. */
+        fun retMinOf(code: String): Int? =
+            returnPrices[code]?.values
+                ?.filter { e ->
+                    returnDateFilter == null || runCatching {
+                        returnDateFilter(LocalDate.parse(e.depDate))
+                    }.getOrDefault(false)
+                }?.minOfOrNull { it.price }
+
         // Лучшая цена направления с учётом выбранного режима («туда» или сумма пары).
         fun bestPrice(route: PobedaRepository.RoutePrices): Int? {
-            val out = route.cheapest?.price ?: return null
+            val out = routeBest(route)?.price ?: return null
             if (!roundTrip) return out
-            val retMin = returnPrices[keyFor(route)]?.values?.minOfOrNull { it.price } ?: return out
+            val retMin = retMinOf(keyFor(route)) ?: return out
             return out + retMin
         }
 
@@ -54,7 +77,7 @@ class PriceDropNotifier(private val context: Context) {
             returns: Map<String, Map<String, PobedaRepository.PriceEntry>>,
             oneWay: Int,
         ): Int {
-            val retMin = returns[keyFor(route)]?.values?.minOfOrNull { it.price } ?: return oneWay
+            val retMin = retMinOf(keyFor(route)) ?: return oneWay
             return oneWay + retMin
         }
 
@@ -65,7 +88,7 @@ class PriceDropNotifier(private val context: Context) {
             previousPrices[priceKey(keyFor(r), true)] = favorites.getLastKnownPrice(priceKey(keyFor(r), true))
         }
         routes.forEach { r ->
-            val oneWay = r.cheapest?.price ?: return@forEach
+            val oneWay = routeBest(r)?.price ?: return@forEach
             favorites.saveLastKnownPrice(priceKey(keyFor(r), false), oneWay)
             favorites.saveLastKnownPrice(priceKey(keyFor(r), true), pairPrice(r, returnPrices, oneWay))
         }
@@ -94,7 +117,7 @@ class PriceDropNotifier(private val context: Context) {
             val target = favorites.getTargetPrice(code)
             if (target > 0) {
                 val targetRT = favorites.isTargetRoundTrip(code)
-                val oneWay = route.cheapest?.price
+                val oneWay = routeBest(route)?.price
                 val currentForTarget = if (oneWay != null && targetRT)
                     pairPrice(route, returnPrices, oneWay) else current
                 val prevKey = priceKey(code, targetRT)

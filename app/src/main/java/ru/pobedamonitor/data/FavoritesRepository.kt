@@ -165,6 +165,42 @@ class FavoritesRepository(context: Context) {
         get() = prefs.getBoolean(NOTIF_ENABLED_KEY, false)
         set(value) = prefs.edit().putBoolean(NOTIF_ENABLED_KEY, value).apply()
 
+    // ---- v2.14: дни недели уведомлений (режим «выходных») ----
+
+    /**
+     * Выбранные дни недели ВЫЛЕТА «туда» для уведомлений (пустое множество =
+     * обычный режим «все даты»). Сохраняется при каждом обновлении цен из UI,
+     * чтобы фоновая проверка (WorkManager) слала уведомления только по датам,
+     * попадающим в выбранные дни, как и на экране.
+     */
+    var notifyOutboundDays: Set<java.time.DayOfWeek>
+        get() = prefs.getString(OUT_DAYS_KEY, null)?.let { raw ->
+            runCatching {
+                raw.split(',').filter { it.isNotBlank() }
+                    .mapNotNull { d -> java.time.DayOfWeek.entries.firstOrNull { it.name == d } }
+                    .toSet()
+            }.getOrDefault(emptySet())
+        } ?: emptySet()
+        set(value) = prefs.edit()
+            .putString(OUT_DAYS_KEY, value.joinToString(",") { it.name }).apply()
+
+    /** Включён ли в настройках уведомлений поиск обратных билетов. */
+    var notifyReturnEnabled: Boolean
+        get() = prefs.getBoolean(RETURN_ENABLED_KEY, false)
+        set(value) = prefs.edit().putBoolean(RETURN_ENABLED_KEY, value).apply()
+
+    /** Выбранные дни недели ВОЗВРАТА «обратно» для уведомлений. */
+    var notifyReturnDays: Set<java.time.DayOfWeek>
+        get() = prefs.getString(RETURN_DAYS_KEY, null)?.let { raw ->
+            runCatching {
+                raw.split(',').filter { it.isNotBlank() }
+                    .mapNotNull { d -> java.time.DayOfWeek.entries.firstOrNull { it.name == d } }
+                    .toSet()
+            }.getOrDefault(emptySet())
+        } ?: emptySet()
+        set(value) = prefs.edit()
+            .putString(RETURN_DAYS_KEY, value.joinToString(",") { it.name }).apply()
+
     // ---- v2.12: интервал фоновой проверки цен ----
 
     /**
@@ -193,6 +229,9 @@ class FavoritesRepository(context: Context) {
         private const val TARGET_RT_PREFIX = "target_rt_"
         private const val TARGET_NOTIFIED_PREFIX = "target_notified_"
         private const val CHECK_INTERVAL_KEY = "check_interval_hours"
+        private const val OUT_DAYS_KEY = "notify_out_days"
+        private const val RETURN_ENABLED_KEY = "notify_return_enabled"
+        private const val RETURN_DAYS_KEY = "notify_return_days"
         const val DEFAULT_CHECK_HOURS = 1
         const val MIN_CHECK_HOURS = 1   // минимум WorkManager для периодических задач
         const val MAX_CHECK_HOURS = 24

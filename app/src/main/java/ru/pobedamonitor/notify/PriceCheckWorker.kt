@@ -46,6 +46,16 @@ class PriceCheckWorker(
         val from = today.plusDays(1)          // ближайшие билеты обычно не продаются
         val to = today.plusDays(BACKFILL_DAYS)
 
+        // v2.14: дни недели уведомлений (режим «выходных») — берём последние
+        // сохранённые из UI; пустое множество = обычный режим «все даты».
+        val outDays = favorites.notifyOutboundDays
+        val returnEnabled = favorites.notifyReturnEnabled
+        val retDays = favorites.notifyReturnDays
+        val outFilter: ((LocalDate) -> Boolean)? =
+            if (outDays.isNotEmpty()) { d -> d.dayOfWeek in outDays } else null
+        val retFilter: ((LocalDate) -> Boolean)? =
+            if (returnEnabled && retDays.isNotEmpty()) { d -> d.dayOfWeek in retDays } else null
+
         // Группируем избранные по хабам — API отдаёт все направления хаба одним запросом на дату.
         val byHub = codes.groupBy { it.substringBefore('-') }
         val routes = mutableListOf<PobedaRepository.RoutePrices>()
@@ -62,7 +72,8 @@ class PriceCheckWorker(
         // Пополняем историю дневных минимумов (для графика и прогноза).
         val keyFor: (PobedaRepository.RoutePrices) -> String = { "${it.hubIata}-${it.arrivalIata}" }
         val todayPrices = routes.mapNotNull { r ->
-            r.cheapest?.price?.let { keyFor(r) to it }
+            (if (outFilter != null) r.cheapestFiltered(outFilter) else r.cheapest)
+                ?.price?.let { keyFor(r) to it }
         }.toMap()
         if (todayPrices.isNotEmpty()) history.recordAll(todayPrices)
 
@@ -91,7 +102,7 @@ class PriceCheckWorker(
                 }.awaitAll().filter { it.second.isNotEmpty() }.toMap()
             }
         }
-        runCatching { notifier.onPricesLoaded(routes, keyFor, returnPrices) }
+        runCatching { notifier.onPricesLoaded(routes, keyFor, returnPrices, outFilter, retFilter) }
         Result.success()
     }
 

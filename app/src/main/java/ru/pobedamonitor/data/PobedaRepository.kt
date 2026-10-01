@@ -107,6 +107,15 @@ class PobedaRepository {
         val prices: Map<String, PriceEntry>,   // date -> entry
     ) {
         val cheapest: PriceEntry? get() = prices.values.minByOrNull { it.price }
+
+        /**
+         * v2.14: лучшая цена среди дат, удовлетворяющих предикату [keepDate]
+         * (например, только выбранные дни недели режима «выходных»).
+         */
+        fun cheapestFiltered(keepDate: (LocalDate) -> Boolean): PriceEntry? =
+            prices.values.filter { e ->
+                runCatching { keepDate(LocalDate.parse(e.depDate)) }.getOrDefault(false)
+            }.minByOrNull { it.price }
     }
 
     data class FetchResult(
@@ -178,13 +187,14 @@ class PobedaRepository {
 
     /**
      * Обратные цены для одного направления arrival -> hub на список дат [dates].
-     * Делает по одному запросу на дату (одиночный dates[0] — самый надёжный режим
-     * API) параллельно, возвращает карту дата ISO -> цена.
+     * Если передан непустой [onlyDays], в результат попадают только даты,
+     * дни недели которых выбраны (v2.14: уведомления учитывают дни «обратно»).
      */
     suspend fun fetchReturnPrices(
         hubIata: String,
         arrivalIata: String,
         dates: List<LocalDate>,
+        onlyDays: Set<java.time.DayOfWeek> = emptySet(),
     ): Map<String, PriceEntry> = withContext(Dispatchers.IO) {
         coroutineScope {
             dates.map { date ->
@@ -198,7 +208,13 @@ class PobedaRepository {
                         null
                     }
                 }
-            }.awaitAll().filterNotNull().associateBy { it.depDate }
+            }.awaitAll().filterNotNull()
+                .filter { e ->
+                    onlyDays.isEmpty() || runCatching {
+                        LocalDate.parse(e.depDate).dayOfWeek in onlyDays
+                    }.getOrDefault(false)
+                }
+                .associateBy { it.depDate }
         }
     }
 
