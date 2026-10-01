@@ -56,6 +56,7 @@ import ru.pobedamonitor.data.PobedaRepository
 import ru.pobedamonitor.ui.PobedaMonitorTheme
 import ru.pobedamonitor.ui.PobedaViewModel
 import ru.pobedamonitor.ui.SearchMode
+import ru.pobedamonitor.ui.SortOrder
 import ru.pobedamonitor.ui.UiState
 import ru.pobedamonitor.ui.headerBrush
 import ru.pobedamonitor.ui.screenBackgroundBrush
@@ -251,6 +252,8 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
                 Spacer(Modifier.height(8.dp))
                 DestinationPicker(state, vm)
                 Spacer(Modifier.height(6.dp))
+                SortTabs(state, vm)
+                Spacer(Modifier.height(6.dp))
                 if (state.mode == SearchMode.ALL_DAYS) {
                     AllDaysControls(state, vm)
                 } else {
@@ -322,6 +325,47 @@ private fun ModeTabs(state: UiState, vm: PobedaViewModel) {
                         Text(
                             text,
                             style = MaterialTheme.typography.labelLarge,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Сегментированный переключатель сортировки результатов по цене. */
+@Composable
+private fun SortTabs(state: UiState, vm: PobedaViewModel) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            data class Opt(val order: SortOrder, val label: String)
+            listOf(
+                Opt(SortOrder.NONE, "Без сортировки"),
+                Opt(SortOrder.ASC, "Цена ↑"),
+                Opt(SortOrder.DESC, "Цена ↓"),
+            ).forEach { opt ->
+                val selected = state.sortOrder == opt.order
+                Surface(
+                    onClick = { vm.setSortOrder(opt.order) },
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                    contentColor = if (selected) MaterialTheme.colorScheme.onPrimary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Box(
+                        Modifier.padding(horizontal = 6.dp, vertical = 9.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            opt.label,
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                             maxLines = 1,
                             textAlign = TextAlign.Center,

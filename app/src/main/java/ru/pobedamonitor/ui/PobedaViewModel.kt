@@ -22,6 +22,9 @@ import java.time.temporal.TemporalAdjusters
 /** Режимы поиска. */
 enum class SearchMode { ALL_DAYS, WEEKENDS }
 
+/** Сортировка результатов по цене. */
+enum class SortOrder { NONE, ASC, DESC }
+
 /** Состояние экрана монитора цен. */
 data class UiState(
     val hubsSelected: Set<String> = setOf("MOW", "MSQ"),
@@ -41,6 +44,8 @@ data class UiState(
     // --- /режим «выходных» ---
     /** Фильтр «Куда»: пустой список = все направления. */
     val destinationsSelected: Set<String> = emptySet(),
+    /** Сортировка карточек по цене: без сортировки / по возрастанию / по убыванию. */
+    val sortOrder: SortOrder = SortOrder.NONE,
     val isLoading: Boolean = false,
     val routes: List<PobedaRepository.RoutePrices> = emptyList(),
     val errors: List<String> = emptyList(),
@@ -92,15 +97,23 @@ data class UiState(
     fun keyFor(route: PobedaRepository.RoutePrices): String =
         "${route.hubIata}-${route.arrivalIata}"
 
-    /** Направления, отфильтрованные по выбранному аэропорту прилёта («Куда»). */
-    fun visibleRoutes(): List<PobedaRepository.RoutePrices> =
-        if (destinationsSelected.isEmpty()) routes
+    /** Направления, отфильтрованные по выбранному аэропорту прилёта («Куда»)
+     *  и отсортированные по минимальной цене согласно [sortOrder]. */
+    fun visibleRoutes(): List<PobedaRepository.RoutePrices> {
+        val filtered = if (destinationsSelected.isEmpty()) routes
         else routes.filter { it.arrivalIata in destinationsSelected }
+        return when (sortOrder) {
+            SortOrder.NONE -> filtered
+            SortOrder.ASC -> filtered.sortedBy { it.cheapest?.price ?: Int.MAX_VALUE }
+            SortOrder.DESC -> filtered.sortedByDescending { it.cheapest?.price ?: -1 }
+        }
+    }
 
     /** Пара «туда/обратно» для одной карточки: вылет из хаба в город назначения. */
     data class TripPair(
         val route: PobedaRepository.RoutePrices,
         val legs: List<Leg>,
+        val sortOrder: SortOrder = SortOrder.NONE,
     ) {
         data class Leg(
             val outboundDate: LocalDate,
@@ -120,14 +133,22 @@ data class UiState(
             val total: Int get() = outboundPrice + returnPrice
         }
 
-        /** Полный список пар туда+обратно для этого направления (все даты × все возвраты). */
+        /** Полный список пар туда+обратно для этого направления (все даты × все возвраты).
+         *  Порядок зависит от выбранной сортировки [sortOrder]. */
         val combos: List<Combo>
-            get() = legs.flatMap { leg ->
-                val o = leg.outbound ?: return@flatMap emptyList()
-                leg.returns.map { (rd, pe) ->
-                    Combo(leg.outboundDate, rd, pe.second, o.price, pe.first.price)
+            get() {
+                val list = legs.flatMap { leg ->
+                    val o = leg.outbound ?: return@flatMap emptyList()
+                    leg.returns.map { (rd, pe) ->
+                        Combo(leg.outboundDate, rd, pe.second, o.price, pe.first.price)
+                    }
                 }
-            }.sortedBy { it.total }
+                return when (sortOrder) {
+                    SortOrder.NONE -> list.sortedBy { it.depDate }
+                    SortOrder.ASC -> list.sortedBy { it.total }
+                    SortOrder.DESC -> list.sortedByDescending { it.total }
+                }
+            }
 
         /** Минимальная суммарная цена пары туда+обратно по всем строкам карточки. */
         val cheapestTotal: Int?
@@ -169,9 +190,10 @@ data class UiState(
         return best
     }
 
-    /** Собирает пары «туда + обратно» по датам вылета (режим выходных). */
+    /** Собирает пары «туда + обратно» по датам вылета (режим выходных).
+     *  Карточки сортируются по минимальной сумме пары согласно [sortOrder]. */
     fun tripPairs(departureDates: List<LocalDate>): List<TripPair> {
-        return visibleRoutes().map { route ->
+        val pairs = visibleRoutes().map { route ->
             val ret = returnPrices[keyFor(route)] ?: emptyMap()
             val legs = departureDates.mapNotNull { dep ->
                 val out = route.prices[dep.toString()]
@@ -187,8 +209,13 @@ data class UiState(
                 if (outEntry == null && returns.isEmpty()) return@mapNotNull null
                 TripPair.Leg(dep, outEntry, returns)
             }
-            TripPair(route, legs)
+            TripPair(route, legs, sortOrder)
         }.filter { it.legs.isNotEmpty() }
+        return when (sortOrder) {
+            SortOrder.NONE -> pairs
+            SortOrder.ASC -> pairs.sortedBy { it.cheapestTotal ?: Int.MAX_VALUE }
+            SortOrder.DESC -> pairs.sortedByDescending { it.cheapestTotal ?: -1 }
+        }
     }
 
     /** Лучшая суммарная цена «туда+обратно» среди всех направлений (для шапки результатов). */
@@ -281,6 +308,22 @@ class PobedaViewModel : ViewModel() {
 
     fun clearDestinations() {
         _state.update { it.copy(destinationsSelected = emptySet()) }
+    }
+
+    /** Циклическое переключение сортировки: без → по возрастанию → по убыванию. */
+    fun cycleSortOrder() {
+        _state.update { s ->
+            val next = when (s.sortOrder) {
+                SortOrder.NONE -> SortOrder.ASC
+                SortOrder.ASC -> SortOrder.DESC
+                SortOrder.DESC -> SortOrder.NONE
+            }
+            s.copy(sortOrder = next)
+        }
+    }
+
+    fun setSortOrder(order: SortOrder) {
+        _state.update { it.copy(sortOrder = order) }
     }
 
     fun refresh() {
