@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background"
+    android:padding="12dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="✈ Pobeda · Избранное"
+        android:textColor="#FFFFFFFF"
+        android:textStyle="bold"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/emptyText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="8dp"
+        android:text="Добавьте направления в избранное ⭐ в приложении"
+        android:textColor="#CCFFFFFF"
+        android:textSize="11sp"
+        android:visibility="gone" />
+
+    <LinearLayout android:id="@+id/row1" style="@style/WidgetRow">
+        <TextView android:id="@+id/name1" style="@style/WidgetName" />
+        <TextView android:id="@+id/price1" style="@style/WidgetPrice" />
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/row2" style="@style/WidgetRow">
+        <TextView android:id="@+id/name2" style="@style/WidgetName" />
+        <TextView android:id="@+id/price2" style="@style/WidgetPrice" />
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/row3" style="@style/WidgetRow">
+        <TextView android:id="@+id/name3" style="@style/WidgetName" />
+        <TextView android:id="@+id/price3" style="@style/WidgetPrice" />
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/row4" style="@style/WidgetRow">
+        <TextView android:id="@+id/name4" style="@style/WidgetName" />
+        <TextView android:id="@+id/price4" style="@style/WidgetPrice" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/updatedAt"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="6dp"
+        android:textColor="#99FFFFFF"
+        android:textSize="10sp" />
+</LinearLayout>

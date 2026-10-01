@@ -1,6 +1,8 @@
 package ru.pobedamonitor.ui
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +27,9 @@ enum class SearchMode { ALL_DAYS, WEEKENDS }
 /** Сортировка результатов по цене. */
 enum class SortOrder { NONE, ASC, DESC }
 
+/** Фильтр списка: все направления / только избранные. */
+enum class ListFilter { ALL, FAVORITES }
+
 /** Состояние экрана монитора цен. */
 data class UiState(
     val hubsSelected: Set<String> = setOf("MOW", "MSQ"),
@@ -46,6 +51,10 @@ data class UiState(
     val destinationsSelected: Set<String> = emptySet(),
     /** Сортировка карточек по цене: без сортировки / по возрастанию / по убыванию. */
     val sortOrder: SortOrder = SortOrder.NONE,
+    /** Фильтр «только избранные». */
+    val listFilter: ListFilter = ListFilter.ALL,
+    /** Избранные направления (ключи "hub-arrival"), сохраняются между запусками. */
+    val favorites: Set<String> = emptySet(),
     val isLoading: Boolean = false,
     val routes: List<PobedaRepository.RoutePrices> = emptyList(),
     val errors: List<String> = emptyList(),
@@ -97,17 +106,25 @@ data class UiState(
     fun keyFor(route: PobedaRepository.RoutePrices): String =
         "${route.hubIata}-${route.arrivalIata}"
 
-    /** Направления, отфильтрованные по выбранному аэропорту прилёта («Куда»)
-     *  и отсортированные по минимальной цене согласно [sortOrder]. */
+    /** Направления, отфильтрованные по выбранному аэропорту прилёта («Куда»),
+     *  по избранности (filter=Favorites) и отсортированные по минимальной цене
+     *  согласно [sortOrder]. */
     fun visibleRoutes(): List<PobedaRepository.RoutePrices> {
-        val filtered = if (destinationsSelected.isEmpty()) routes
+        var filtered = if (destinationsSelected.isEmpty()) routes
         else routes.filter { it.arrivalIata in destinationsSelected }
+        if (listFilter == ListFilter.FAVORITES) {
+            filtered = filtered.filter { keyFor(it) in favorites }
+        }
         return when (sortOrder) {
             SortOrder.NONE -> filtered
             SortOrder.ASC -> filtered.sortedBy { it.cheapest?.price ?: Int.MAX_VALUE }
             SortOrder.DESC -> filtered.sortedByDescending { it.cheapest?.price ?: -1 }
         }
     }
+
+    /** Избранные направления с их текущими ценами (для виджета). */
+    fun favoriteRoutesWithPrices(): List<PobedaRepository.RoutePrices> =
+        routes.filter { keyFor(it) in favorites }
 
     /** Пара «туда/обратно» для одной карточки: вылет из хаба в город назначения. */
     data class TripPair(
@@ -223,12 +240,13 @@ data class UiState(
         tripPairs(departureDates).mapNotNull { it.cheapestTotal }.minOrNull()
 }
 
-class PobedaViewModel : ViewModel() {
+class PobedaViewModel(private val appContext: Context) : ViewModel() {
 
     private val repository = PobedaRepository()
     private val currencyRepository = CurrencyRepository()
+    private val favoritesRepository = ru.pobedamonitor.data.FavoritesRepository(appContext)
 
-    private val _state = MutableStateFlow(UiState())
+    private val _state = MutableStateFlow(UiState(favorites = favoritesRepository.load()))
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var fetchJob: Job? = null
@@ -326,6 +344,31 @@ class PobedaViewModel : ViewModel() {
         _state.update { it.copy(sortOrder = order) }
     }
 
+    /** Переключить фильтр «только избранные». */
+    fun setListFilter(filter: ListFilter) {
+        _state.update { it.copy(listFilter = filter) }
+    }
+
+    /** Добавить/убрать направление из избранного, сохранить локально. */
+    fun toggleFavorite(code: String) {
+        val newSet = favoritesRepository.toggle(code)
+        _state.update { it.copy(favorites = newSet) }
+        updateWidget()
+    }
+
+    /** Сохраняет снимок избранных цен в prefs и обновляет домашний виджет. */
+    private fun updateWidget() {
+        val s = _state.value
+        val entries = s.favoriteRoutesWithPrices().map { r ->
+            ru.pobedamonitor.data.FavoritesRepository.WidgetEntry(
+                name = r.arrivalName.ifBlank { r.arrivalIata },
+                priceRub = r.cheapest?.price,
+            )
+        }
+        favoritesRepository.saveSnapshot(entries)
+        ru.pobedamonitor.widget.PriceWidget.update(appContext)
+    }
+
     fun refresh() {
         val s = _state.value
         if (s.isLoading) return
@@ -391,6 +434,9 @@ class PobedaViewModel : ViewModel() {
                         _state.update { it.copy(weather = it.weather + w) }
                     }
                 }
+
+                // Обновляем домашний виджет избранных направлений.
+                updateWidget()
             } catch (e: Exception) {
                 _state.update {
                     it.copy(isLoading = false, errors = it.errors + (e.message ?: "Ошибка сети"))
@@ -402,5 +448,15 @@ class PobedaViewModel : ViewModel() {
     init {
         refreshRate()
         refresh()
+    }
+
+    companion object {
+        /** Фабрика: ViewModel получает ApplicationContext для работы с prefs/виджетом. */
+        fun factory(context: Context): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    PobedaViewModel(context.applicationContext) as T
+            }
     }
 }
