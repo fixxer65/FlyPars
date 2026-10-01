@@ -27,4 +27,5 @@ style Theme.PobedaMonitor
 style WidgetName
 style WidgetPrice
 style WidgetRow
+xml file_paths
 xml widget_info

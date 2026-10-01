@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ru.pobedamonitor"
-    android:versionCode="15"
-    android:versionName="2.4" >
+    android:versionCode="16"
+    android:versionName="2.5" >
 
     <uses-sdk
         android:minSdkVersion="24"
@@ -52,6 +52,17 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_info" />
         </receiver>
+
+        <!-- v2.5: FileProvider для экспорта истории цен в CSV -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="ru.pobedamonitor.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true" >
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <activity
             android:name="androidx.compose.ui.tooling.PreviewActivity"

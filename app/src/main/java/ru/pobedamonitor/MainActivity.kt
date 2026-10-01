@@ -15,7 +15,12 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
@@ -130,6 +135,29 @@ fun MainScreen(
     val scroll = rememberTopAppBarState()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(scroll)
 
+    // v2.5: экран графика истории цен по направлению (открывается тапом по карточке).
+    var historyRoute by remember { mutableStateOf<PobedaRepository.RoutePrices?>(null) }
+    // v2.5: экспорт истории в CSV — через системный «Поделиться».
+    val context = LocalContext.current
+    val shareCsv: () -> Unit = {
+        val file = vm.exportHistoryCsv()
+        if (file == null) {
+            android.widget.Toast.makeText(
+                context, "История цен пока пуста — подождите пару обновлений",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+        } else {
+            val uri = ru.pobedamonitor.data.CsvExporter(context).uriFor(file)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/csv"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, "Pobeda: история цен")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(send, "Экспорт истории цен (CSV)"))
+        }
+    }
+
     // v2.4: тап по уведомлению «цена упала» — переключаемся на избранные.
     LaunchedEffect(openFavoritesRequested) {
         if (openFavoritesRequested) {
@@ -195,11 +223,23 @@ fun MainScreen(
                 state.isLoading && visible.isEmpty() -> LoadingBlock()
                 visible.isEmpty() && !state.isLoading -> EmptyBlock(state, vm)
                 else -> {
-                    ResultsHeader(state, visible)
-                    RefreshableResults(vm, state, visible, scrollBehavior)
+                    ResultsHeader(state, visible, onExportCsv = shareCsv)
+                    RefreshableResults(vm, state, visible, scrollBehavior) { route ->
+                        historyRoute = route
+                    }
                 }
             }
         }
+    }
+
+    // v2.5: модалка с графиком истории цен направления (открывается тапом по карточке).
+    historyRoute?.let { route ->
+        PriceHistoryDialog(
+            route = route,
+            vm = vm,
+            state = state,
+            onDismiss = { historyRoute = null },
+        )
     }
 }
 
@@ -965,18 +1005,23 @@ private fun RefreshableResults(
     state: UiState,
     visible: List<PobedaRepository.RoutePrices>,
     scrollBehavior: TopAppBarScrollBehavior?,
+    onOpenHistory: (PobedaRepository.RoutePrices) -> Unit = {},
 ) {
     PullToRefreshBox(
         isRefreshing = state.isLoading,
         onRefresh = { vm.refreshRate(); vm.refresh() },
         modifier = Modifier.fillMaxSize(),
     ) {
-        RouteList(state, visible, vm, scrollBehavior)
+        RouteList(state, visible, vm, scrollBehavior, onOpenHistory)
     }
 }
 
 @Composable
-private fun ResultsHeader(state: UiState, visible: List<PobedaRepository.RoutePrices>) {
+private fun ResultsHeader(
+    state: UiState,
+    visible: List<PobedaRepository.RoutePrices>,
+    onExportCsv: () -> Unit = {},
+) {
     val bestTotal = state.bestPairTotal(state.weekendDepartureDates())
     val subtitle = when {
         state.mode == SearchMode.WEEKENDS && state.returnEnabled && bestTotal != null ->
@@ -1007,7 +1052,27 @@ private fun ResultsHeader(state: UiState, visible: List<PobedaRepository.RoutePr
             )
         }
         if (state.isLoading) {
-            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.5.dp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // v2.5: экспорт всей накопленной истории цен в CSV
+                TextButton(onClick = onExportCsv) {
+                    Text(
+                        "CSV",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.5.dp)
+            }
+        } else {
+            TextButton(onClick = onExportCsv) {
+                Text(
+                    "📄 CSV",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
     }
 }
@@ -1070,6 +1135,7 @@ private fun RouteList(
     visible: List<PobedaRepository.RoutePrices>,
     vm: PobedaViewModel,
     scrollBehavior: TopAppBarScrollBehavior? = null,
+    onOpenHistory: (PobedaRepository.RoutePrices) -> Unit = {},
 ) {
     val dayFmt = remember { DateTimeFormatter.ofPattern("dd.MM", RU) }
     val longFmt = remember { DateTimeFormatter.ofPattern("EEE d MMM", RU) }
@@ -1101,11 +1167,11 @@ private fun RouteList(
         if (state.mode == SearchMode.WEEKENDS && state.returnEnabled) {
             val pairs = state.tripPairs(state.weekendDepartureDates())
             items(pairs, key = { "p-${it.route.hubIata}-${it.route.arrivalIata}" }) { pair ->
-                TripPairCard(pair, state, vm, longFmt)
+                TripPairCard(pair, state, vm, longFmt, onOpenHistory)
             }
         } else {
             items(visible, key = { "r-${it.hubIata}-${it.arrivalIata}" }) { route ->
-                RouteCard(route, state, vm, dayFmt)
+                RouteCard(route, state, vm, dayFmt, onOpenHistory)
             }
         }
     }
@@ -1119,6 +1185,7 @@ private fun TripPairCard(
     state: UiState,
     vm: PobedaViewModel,
     longFmt: DateTimeFormatter,
+    onOpenHistory: (PobedaRepository.RoutePrices) -> Unit = {},
 ) {
     val route = pair.route
     val hubName = PobedaRepository.HUBS.first { it.iata == route.hubIata }.name
@@ -1206,6 +1273,15 @@ private fun TripPairCard(
                                 }
                             }
                         }
+                        Spacer(Modifier.height(3.dp))
+                        // v2.5: график истории цен направления
+                        Text(
+                            "📉 история ▸",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { onOpenHistory(route) },
+                        )
                         Spacer(Modifier.height(3.dp))
                         Text(
                             if (expanded) "свернуть ▴" else "все выходные ▾",
@@ -1303,13 +1379,17 @@ private fun RouteCard(
     state: UiState,
     vm: PobedaViewModel,
     dayFmt: DateTimeFormatter,
+    onOpenHistory: (PobedaRepository.RoutePrices) -> Unit = {},
 ) {
     val hubName = PobedaRepository.HUBS.first { it.iata == route.hubIata }.name
     val cheapest = route.cheapest
     val sorted = route.prices.values.sortedBy { it.depDate }
 
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            // v2.5: тап по карточке открывает график истории цен направления
+            .clickable { onOpenHistory(route) },
         shape = RoundedCornerShape(26.dp),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
     ) {
@@ -1430,6 +1510,226 @@ private fun RouteCard(
 
 private fun formatPrice(price: Int): String =
     String.format(Locale("ru"), "%,d", price).replace(',', ' ') + " ₽"
+
+/**
+ * Диалог «История цен» (v2.5): открывается тапом по карточке направления.
+ * Показывает линейный график накопленных минимальных цен по дням, статистику
+ * (мин/медиана/макс) и текущую цену. Если наблюдений мало — просит обновлять
+ * приложение несколько дней.
+ */
+@Composable
+private fun PriceHistoryDialog(
+    route: PobedaRepository.RoutePrices,
+    vm: PobedaViewModel,
+    state: UiState,
+    onDismiss: () -> Unit,
+) {
+    val history = remember(route.hubIata, route.arrivalIata, state.lastUpdated) {
+        vm.historyFor(route.hubIata, route.arrivalIata)
+    }
+    val hubName = PobedaRepository.HUBS.first { it.iata == route.hubIata }.name
+    val destName = route.arrivalName.ifBlank { route.arrivalIata }
+    val shortFmt = remember { DateTimeFormatter.ofPattern("d.MM", RU) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(26.dp),
+        title = {
+            Text(
+                "История цен: $hubName → $destName",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                if (history.size < 2) {
+                    Text(
+                        "📈 Накоплено наблюдений: ${history.size}.\n\n" +
+                            "Приложение запоминает минимальную цену каждый день при " +
+                            "обновлении списка. Открывайте его хотя бы раз в сутки — " +
+                            "и через несколько дней здесь появится график.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    val prices = history.map { it.second }
+                    val min = prices.min()
+                    val max = prices.max()
+                    val sortedP = prices.sorted()
+                    val median = if (sortedP.size % 2 == 1) sortedP[sortedP.size / 2]
+                    else (sortedP[sortedP.size / 2 - 1] + sortedP[sortedP.size / 2]) / 2
+                    val current = route.cheapest?.price
+
+                    PriceChart(
+                        points = history,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    // подписи первой/последней даты
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            history.first().first.format(shortFmt),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            history.last().first.format(shortFmt),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        HistoryStat("Минимум", formatPrice(min), Color(0xFF1B5E20))
+                        HistoryStat("Медиана", formatPrice(median), MaterialTheme.colorScheme.onSurface)
+                        HistoryStat("Максимум", formatPrice(max), Color(0xFFB71C1C))
+                    }
+                    current?.let { c ->
+                        Spacer(Modifier.height(10.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Сейчас",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                formatPrice(c),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = when {
+                                    c <= min -> Color(0xFF1B5E20)
+                                    c >= max -> Color(0xFFB71C1C)
+                                    else -> MaterialTheme.colorScheme.primary
+                                },
+                            )
+                        }
+                        formatByn(c, state.bynPerRub)?.let { byn ->
+                            Text(
+                                "≈ $byn",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    state.assessments["${route.hubIata}-${route.arrivalIata}"]?.let { a ->
+                        Spacer(Modifier.height(10.dp))
+                        PriceVerdictBadge(a)
+                    }
+                    Text(
+                        "Наблюдений: ${history.size} · максимум храним ${ru.pobedamonitor.data.PriceHistoryRepository.MAX_DAYS}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Закрыть") }
+        },
+    )
+}
+
+@Composable
+private fun HistoryStat(label: String, value: String, color: androidx.compose.ui.graphics.Color) {
+    Column(horizontalAlignment = Alignment.Start) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = color,
+        )
+    }
+}
+
+/**
+ * Простой Canvas-график линии цен: точки (дата, цена), старые -> новые.
+ * Ось Y масштабируется по min/max с отступом; под линией — полупрозрачная
+ * заливка, на последней точке — акцентный маркер.
+ */
+@Composable
+private fun PriceChart(
+    points: List<Pair<LocalDate, Int>>,
+    modifier: Modifier = Modifier,
+) {
+    val lineColor = MaterialTheme.colorScheme.primary
+    val fillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+    val gridColor = MaterialTheme.colorScheme.outlineVariant
+    val markerColor = MaterialTheme.colorScheme.secondary
+
+    val xs = remember(points) {
+        // нормализуем позиции точек по индексу (дни могут идти с пропусками)
+        points.indices.toList()
+    }
+
+    Canvas(modifier) {
+        if (points.size < 2) return@Canvas
+        val padTop = 14.dp.toPx()
+        val padBottom = 14.dp.toPx()
+        val h = size.height - padTop - padBottom
+        val lo = points.minOf { it.second }.toDouble()
+        val hi = points.maxOf { it.second }.toDouble()
+        val span = ((hi - lo) * 0.15).coerceAtLeast(1.0)
+        val yMin = lo - span
+        val yMax = hi + span
+
+        fun xAt(i: Int): Float =
+            if (xs.size == 1) size.width / 2f
+            else size.width * i.toFloat() / (xs.size - 1)
+
+        fun yAt(v: Int): Float =
+            padTop + h.toFloat() * (1f - (v - yMin) / (yMax - yMin)).toFloat()
+
+        // горизонтальные линии сетки (3 деления)
+        for (k in 0..2) {
+            val yy = padTop + h * k / 2f
+            drawLine(gridColor, Offset(0f, yy), Offset(size.width, yy), strokeWidth = 1.dp.toPx())
+        }
+
+        val path = Path().apply {
+            points.forEachIndexed { i, (_, price) ->
+                val p = Offset(xAt(i), yAt(price))
+                if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y)
+            }
+        }
+        // заливка под линией
+        val fillPath = Path().apply {
+            addPath(path)
+            lineTo(xAt(points.lastIndex), size.height - padBottom)
+            lineTo(xAt(0), size.height - padBottom)
+            close()
+        }
+        drawPath(fillPath, fillColor)
+        drawPath(path, lineColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round))
+
+        // точки наблюдений
+        points.forEachIndexed { i, (_, price) ->
+            drawCircle(lineColor, radius = 2.5.dp.toPx(), center = Offset(xAt(i), yAt(price)))
+        }
+        // маркер последней точки
+        val last = Offset(xAt(points.lastIndex), yAt(points.last().second))
+        drawCircle(markerColor, radius = 5.dp.toPx(), center = last)
+        drawCircle(androidx.compose.ui.graphics.Color.White, radius = 2.5.dp.toPx(), center = last)
+    }
+}
 
 /**
  * Бейдж прогноза выгодности (v2.3): сравнивает текущую минимальную цену

@@ -1,3 +1,4 @@
+ru.pobedamonitor:xml/file_paths = 0x7f0c0000
 ru.pobedamonitor:styleable/GradientColorItem = 0x7f0b0005
 ru.pobedamonitor:styleable/GradientColor = 0x7f0b0004
 ru.pobedamonitor:styleable/FontFamilyFont = 0x7f0b0003
@@ -245,7 +246,7 @@ ru.pobedamonitor:dimen/notification_top_pad = 0x7f030014
 ru.pobedamonitor:id/tag_screen_reader_focusable = 0x7f050056
 ru.pobedamonitor:string/call_notification_answer_video_action = 0x7f090003
 ru.pobedamonitor:id/view_tree_view_model_store_owner = 0x7f050064
-ru.pobedamonitor:xml/widget_info = 0x7f0c0000
+ru.pobedamonitor:xml/widget_info = 0x7f0c0001
 ru.pobedamonitor:dimen/notification_right_side_padding_top = 0x7f030010
 ru.pobedamonitor:id/name1 = 0x7f05003b
 ru.pobedamonitor:string/m3c_date_input_label = 0x7f09001a

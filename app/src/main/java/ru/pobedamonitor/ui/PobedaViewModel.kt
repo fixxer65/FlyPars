@@ -494,6 +494,14 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
         refresh()
     }
 
+    /** История цен одного направления (v2.5): наблюдения «дата -> мин. цена», старые -> новые. */
+    fun historyFor(hubIata: String, arrivalIata: String): List<Pair<LocalDate, Int>> =
+        historyRepository.historyFor("$hubIata-$arrivalIata")
+
+    /** Экспорт всей накопленной истории в CSV-файл (v2.5). null — если истории ещё нет. */
+    fun exportHistoryCsv(): java.io.File? =
+        ru.pobedamonitor.data.CsvExporter(appContext).export(historyRepository.loadAll())
+
     companion object {
         /** Фабрика: ViewModel получает ApplicationContext для работы с prefs/виджетом. */
         fun factory(context: Context): ViewModelProvider.Factory =
