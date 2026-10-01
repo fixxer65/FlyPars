@@ -28,7 +28,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -219,13 +222,19 @@ fun MainScreen(
             Spacer(Modifier.height(6.dp))
             RateAndUpdatedChip(state)
             FilterCard(state = state, vm = vm)
-            Spacer(Modifier.height(8.dp))
 
             val visible = state.visibleRoutes()
             when {
-                state.isLoading && visible.isEmpty() -> LoadingBlock()
-                visible.isEmpty() && !state.isLoading -> EmptyBlock(state, vm)
+                state.isLoading && visible.isEmpty() -> {
+                    Spacer(Modifier.height(8.dp))
+                    LoadingBlock()
+                }
+                visible.isEmpty() && !state.isLoading -> {
+                    Spacer(Modifier.height(8.dp))
+                    EmptyBlock(state, vm)
+                }
                 else -> {
+                    Spacer(Modifier.height(8.dp))
                     ResultsHeader(state, visible, onExportCsv = shareCsv)
                     RefreshableResults(vm, state, visible, scrollBehavior) { route ->
                         historyRoute = route
@@ -292,9 +301,17 @@ private fun RateAndUpdatedChip(state: UiState) {
 private fun FilterCard(state: UiState, vm: PobedaViewModel) {
     var expanded by rememberSaveable { mutableStateOf(false) }
 
+    // v2.9: ограничиваем высоту развёрнутой карточки ~70% экрана (заголовок крупный TopAppBar
+    // схлопывается при прокрутке списка, так что запас по высоте есть). Внутри — verticalScroll.
+    val maxHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.70f
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            // v2.9: высота развёрнутой карточки ограничена (высота экрана минус шапка,
+            // курс и отступы) — внутренний скролл параметров включается ровно тогда,
+            // когда они не помещаются, и никогда не «съедает» место у списка цен.
+            .heightIn(max = maxHeight)
             .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
         shape = RoundedCornerShape(26.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
@@ -339,7 +356,14 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
         }
 
         if (expanded) {
-            Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 14.dp)) {
+            // v2.9: список параметров вырос (режимы, избранное, хабы, пунктры, сортировка,
+            // даты выходных с обратными рейсами, уведомления) — делаем его прокручиваемым,
+            // иначе в режиме «туда и обратно» нижние элементы не достать скроллом страницы.
+            Column(
+                Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
+            ) {
                 ModeTabs(state, vm)
                 Spacer(Modifier.height(10.dp))
                 FavoritesTabs(state, vm)
@@ -1249,6 +1273,22 @@ private fun RouteList(
         contentPadding = PaddingValues(top = 2.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // v2.9: «буфер» в начале списка цен — невидимая полоска, которая никогда не
+        // перехватывает жесты (awaitEachGesture без awaitFirstDown завершается сразу).
+        // Благодаря ей развёрнутая карточка параметров с её внутренним скроллом не мешает
+        // прокрутке списка: вертикальный жест всегда доходит до LazyColumn — даже в режиме
+        // «туда и обратно», где панель параметров выше всего.
+        item(key = "scroll-buffer") {
+            Spacer(
+                Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .pointerInput(Unit) {
+                        awaitEachGesture { }
+                    },
+            )
+        }
+
         if (state.errors.isNotEmpty()) {
             item {
                 Card(
