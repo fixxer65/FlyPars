@@ -273,21 +273,11 @@ class PobedaRepository {
     private val timetableMisses = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /**
-     * v2.14: расписание Победы отдаёт данные только на ближайшие несколько дней;
-     * для дальней даты пробуем соседние (API иногда сдвигает окно на ±1 день).
-     */
-    private suspend fun fetchTimetableAround(date: LocalDate): Map<String, String> {
-        for (d in listOf(date, date.plusDays(1), date.minusDays(1))) {
-            val m = fetchTimetableDepartureTimes(d.format(isoFmt))
-            if (m.isNotEmpty()) return m
-        }
-        return emptyMap()
-    }
-
-    /**
      * Возвращает карту «$from-$to» -> время вылета (HH:mm, местное время аэропорта)
      * на дату [dateIso] из официального расписания flypobeda.ru. Пустая карта —
      * если расписание на дату недоступно (например, дата дальше ~3 дней).
+     * v2.14: при пустом ответе пробуем соседние даты (API иногда сдвигает окно ±1 день),
+     * но берём только рейсы на запрошенную [dateIso].
      */
     suspend fun fetchTimetableDepartureTimes(dateIso: String): Map<String, String> =
         withContext(Dispatchers.IO) {
@@ -297,30 +287,57 @@ class PobedaRepository {
                 if (System.currentTimeMillis() - missedAt < 6L * 60 * 60 * 1000) return@getOrPut emptyMap()
                 val map = runCatching {
                     val json = httpGetObject("$TIMETABLE_API?locale=ru&date=$dateIso")
-                    val flights = json.optJSONArray("flights") ?: return@runCatching emptyMap()
-                    val map = HashMap<String, String>(flights.length())
-                    for (i in 0 until flights.length()) {
-                        val f = flights.optJSONObject(i) ?: continue
-                        val dep = f.optJSONObject("departure") ?: continue
-                        val arr = f.optJSONObject("arrival") ?: continue
-                        val from = dep.optString("iata").takeIf { it.isNotBlank() } ?: continue
-                        val to = arr.optString("iata").takeIf { it.isNotBlank() } ?: continue
-                        // stdLocal — время вылета по МЕСТНОМУ часовому поясу аэропорта.
-                        val stdLocal = dep.optString("stdLocal").takeIf { it.isNotBlank() && !it.startsWith("01.01.1900") }
-                        val std = dep.optString("std").takeIf { it.isNotBlank() && !it.startsWith("01.01.1900") }
-                        val raw = (stdLocal ?: std)?.substringAfter('T')?.take(5) ?: continue
-                        val h = raw.substringBefore(':').toIntOrNull() ?: continue
-                        val m = raw.substringAfter(':').toIntOrNull() ?: continue
-                        if (h in 0..23 && m in 0..59) {
-                            // Победа выполняет не более одного рейса в день по паре
-                            // аэропортов — просто перезаписываем на всякий случай.
-                            map["$from-$to"] = "%02d:%02d".format(h, m)
+                    parseTimetableFlights(json, onlyOnDate = null)
+                }.getOrDefault(emptyMap())
+                val finalMap = if (map.isNotEmpty()) map else {
+                    // Соседние даты запроса + фильтр по нужной дате вылета.
+                    val d = runCatching { LocalDate.parse(dateIso, isoFmt) }.getOrNull()
+                    var acc: Map<String, String> = emptyMap()
+                    if (d != null) {
+                        for (nd in listOf(d.plusDays(1), d.minusDays(1))) {
+                            val m = runCatching {
+                                val j = httpGetObject("$TIMETABLE_API?locale=ru&date=${nd.format(isoFmt)}")
+                                parseTimetableFlights(j, onlyOnDate = dateIso)
+                            }.getOrDefault(emptyMap())
+                            if (m.isNotEmpty()) { acc = m; break }
                         }
                     }
-                    map
-                }.getOrDefault(emptyMap())
+                    acc
+                }
+                if (finalMap.isEmpty()) timetableMisses[dateIso] = System.currentTimeMillis()
+                finalMap
             }
         }
+
+    /** Разбор ответа flight-timetable; [onlyOnDate] (ISO) — брать только рейсы этого дня вылета. */
+    private fun parseTimetableFlights(json: org.json.JSONObject, onlyOnDate: String?): Map<String, String> {
+        val flights = json.optJSONArray("flights") ?: return emptyMap()
+        val map = HashMap<String, String>(flights.length())
+        for (i in 0 until flights.length()) {
+            val f = flights.optJSONObject(i) ?: continue
+            val dep = f.optJSONObject("departure") ?: continue
+            val arr = f.optJSONObject("arrival") ?: continue
+            val from = dep.optString("iata").takeIf { it.isNotBlank() } ?: continue
+            val to = arr.optString("iata").takeIf { it.isNotBlank() } ?: continue
+            // stdLocal — время вылета по МЕСТНОМУ часовому поясу аэропорта.
+            val stdLocal = dep.optString("stdLocal").takeIf { it.isNotBlank() && !it.startsWith("01.01.1900") }
+            val std = dep.optString("std").takeIf { it.isNotBlank() && !it.startsWith("01.01.1900") }
+            val rawTime = (stdLocal ?: std)?.substringAfter('T')?.take(5) ?: continue
+            if (onlyOnDate != null) {
+                val day = (stdLocal ?: std)?.substringBefore('T')?.take(10)
+                    ?.replace('.', '-') ?: continue
+                if (day != onlyOnDate) continue
+            }
+            val h = rawTime.substringBefore(':').toIntOrNull() ?: continue
+            val m = rawTime.substringAfter(':').toIntOrNull() ?: continue
+            if (h in 0..23 && m in 0..59) {
+                // Победа выполняет не более одного рейса в день по паре
+                // аэропортов — просто перезаписываем на всякий случай.
+                map["$from-$to"] = "%02d:%02d".format(h, m)
+            }
+        }
+        return map
+    }
 
     /**
      * Подставляет в каждый [PriceEntry] реальное время вылета из расписания
@@ -334,7 +351,7 @@ class PobedaRepository {
         return routes.map { r ->
             val newPrices = r.prices.mapValues { (date, e) ->
                 val t = tables[date]?.get("${r.hubIata}-${r.arrivalIata}")
-                    ?: tables[date]?.let { tbl -> MOSCOW_AIRPORTS.firstNotNulls(tbl, r.arrivalIata) }
+                    ?: tables[date]?.let { tbl -> firstNotNulls(tbl, r.arrivalIata) }
                 if (t != null && t != e.depTime) e.copy(depTime = t) else e
             }
             r.copy(prices = newPrices)
