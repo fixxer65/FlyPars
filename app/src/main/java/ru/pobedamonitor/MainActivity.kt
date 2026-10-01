@@ -30,6 +30,10 @@ import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material.icons.outlined.AirplanemodeActive
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -91,22 +95,25 @@ fun MainScreen(vm: PobedaViewModel = viewModel()) {
                 shadowElevation = 6.dp,
             ) {
                 Box(Modifier.background(headerBrush())) {
-                    LargeTopAppBar(
+                    TopAppBar(
                         title = {
-                            Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    "Pobeda · цены",
+                                    "Pobeda",
                                     fontWeight = FontWeight.ExtraBold,
+                                    style = MaterialTheme.typography.titleLarge,
                                     color = Color.White,
                                 )
+                                Spacer(Modifier.width(8.dp))
                                 Text(
-                                    "авиамонитор Москва / Минск",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.75f),
+                                    "авиамонитор",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                 )
                             }
                         },
-                        expandedHeight = 110.dp,
                         colors = TopAppBarDefaults.largeTopAppBarColors(
                             containerColor = Color.Transparent,
                             scrolledContainerColor = Color.Transparent,
@@ -204,32 +211,103 @@ private fun RateAndUpdatedChip(state: UiState) {
     }
 }
 
-/** Все элементы управления аккуратно собраны в одной «тонированной» карточке. */
+/** Все элементы управления аккуратно собраны в одной «тонированной» карточке.
+ *  Карточка сворачивается по тапу на заголовок, чтобы оставить больше места ценам. */
 @Composable
 private fun FilterCard(state: UiState, vm: PobedaViewModel) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
         shape = RoundedCornerShape(26.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (expanded) 4.dp else 2.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Column(Modifier.padding(14.dp)) {
-            ModeTabs(state, vm)
-            Spacer(Modifier.height(10.dp))
-            HubChips(state, vm)
-            Spacer(Modifier.height(8.dp))
-            DestinationPicker(state, vm)
-            Spacer(Modifier.height(6.dp))
-            if (state.mode == SearchMode.ALL_DAYS) {
-                AllDaysControls(state, vm)
-            } else {
-                WeekendsControls(state, vm)
+        // Заголовок-переключатель: всегда виден, показывает суть выбранных фильтров
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.Tune,
+                null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Параметры поиска",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    filterSummary(state),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                Icons.Default.ExpandMore,
+                if (expanded) "Свернуть" else "Развернуть",
+                modifier = Modifier.rotate(if (expanded) 180f else 0f),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+
+        if (expanded) {
+            Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 14.dp)) {
+                ModeTabs(state, vm)
+                Spacer(Modifier.height(10.dp))
+                HubChips(state, vm)
+                Spacer(Modifier.height(8.dp))
+                DestinationPicker(state, vm)
+                Spacer(Modifier.height(6.dp))
+                if (state.mode == SearchMode.ALL_DAYS) {
+                    AllDaysControls(state, vm)
+                } else {
+                    WeekendsControls(state, vm)
+                }
             }
         }
     }
+}
+
+/** Короткое описание текущих фильтров для свёрнутого состояния. */
+private fun filterSummary(state: UiState): String {
+    val hubs = state.hubsSelected.sorted().joinToString("/") {
+        PobedaRepository.HUBS.firstOrNull { h -> h.iata == it }?.name ?: it
+    }.ifBlank { "—" }
+    val dest = when {
+        state.destinationsSelected.isEmpty() -> "все направления"
+        state.destinationsSelected.size == 1 ->
+            Airports.nameOf(state.destinationsSelected.first())
+        else -> "${state.destinationsSelected.size} напр."
+    }
+    return buildString {
+        append(state.modeLabel())
+        append(" · ")
+        append(hubs)
+        append(" → ")
+        append(dest)
+        if (state.mode == SearchMode.WEEKENDS) {
+            append(" · ")
+            append(state.month.atDay(1).format(DateTimeFormatter.ofPattern("MMMM yyyy", RU)))
+        }
+    }
+}
+
+private fun UiState.modeLabel(): String = when (mode) {
+    SearchMode.ALL_DAYS -> "Все дни"
+    SearchMode.WEEKENDS -> "Выходные"
 }
 
 /** Красивый переключатель режимов в стиле сегментированных вкладок. */
@@ -454,9 +532,11 @@ private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
 }
 
 /** Режим «выходных»: месяц + дни вылета «туда» + опция обратных билетов. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
     val monthFmt = remember { DateTimeFormatter.ofPattern("MMMM yyyy", RU) }
+    var monthPickerOpen by rememberSaveable { mutableStateOf(false) }
 
     Column(Modifier.fillMaxWidth()) {
         // Навигатор месяца: ‹ декабрь 2026 ›
@@ -492,11 +572,47 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
                 IconButton(onClick = { vm.shiftMonth(+1); vm.refresh() }) {
                     Icon(Icons.Default.ChevronRight, "Следующий месяц")
                 }
-                IconButton(onClick = {
-                    vm.setMonth(java.time.YearMonth.now().plusMonths(1)); vm.refresh()
-                }) {
-                    Icon(Icons.Default.CalendarMonth, "Текущий месяц")
+                IconButton(onClick = { monthPickerOpen = true }) {
+                    Icon(Icons.Default.CalendarMonth, "Выбрать месяц")
                 }
+            }
+        }
+
+        // Нормальный диалог выбора месяца (Compose DatePicker: год + сетка месяцев)
+        if (monthPickerOpen) {
+            val initMillis = remember(state.month) {
+                state.month.atDay(1).atStartOfDay(java.time.ZoneOffset.UTC)
+                    .toInstant().toEpochMilli()
+            }
+            val pickerState = rememberDatePickerState(initialSelectedDateMillis = initMillis)
+            DatePickerDialog(
+                onDismissRequest = { monthPickerOpen = false },
+                confirmButton = {
+                    TextButton(onClick = {
+                        pickerState.selectedDateMillis?.let { millis ->
+                            val d = java.time.Instant.ofEpochMilli(millis)
+                                .atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                            vm.setMonth(java.time.YearMonth.of(d.year, d.monthValue))
+                            vm.refresh()
+                        }
+                        monthPickerOpen = false
+                    }) { Text("ОК") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { monthPickerOpen = false }) { Text("Отмена") }
+                },
+            ) {
+                DatePicker(
+                    state = pickerState,
+                    showModeToggle = true,
+                    title = {
+                        Text(
+                            "Месяц поиска",
+                            Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    },
+                )
             }
         }
 
