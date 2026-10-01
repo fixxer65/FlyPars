@@ -57,7 +57,41 @@ class PobedaRepository {
         val price: Int,           // RUB
         val airline: String?,
         val flightTime: String?,
-    )
+        /** v2.13: «DP,DP» — стыковочный (несколько плечей), «DP» — прямой. */
+        val legsCount: Int = 1,
+        /** v2.13: время вылета из ответа API (HH:mm или H:mm). */
+        val depTime: String? = null,
+    ) {
+        /** Прямой рейс (одно плечо) или стыковочный (через другой город). */
+        val isDirect: Boolean get() = legsCount <= 1
+
+        /**
+         * v2.13: подпись формата «09 окт · 14:55 · прямой» / «… · стыковочный».
+         * [dateFmt] — формат даты (например, d MMM); без времени возвращает только дату.
+         */
+        fun flightLabel(dateFmt: DateTimeFormatter): String {
+            val sb = StringBuilder()
+            runCatching { LocalDate.parse(depDate).format(dateFmt) }
+                .onSuccess { sb.append(it) }
+                .onFailure { sb.append(depDate) }
+            depTime?.let { sb.append(" · ").append(normalizeTime(it)) }
+            sb.append(if (isDirect) " · прямой" else " · стыковочный")
+            return sb.toString()
+        }
+
+        companion object {
+            /** Приводит «1:30»/«24:00» к виду «01:30»; значения не-времени скрывает. */
+            fun normalizeTime(raw: String?): String? {
+                if (raw.isNullOrBlank()) return null
+                val parts = raw.trim().split(":")
+                if (parts.size != 2) return null
+                val h = parts[0].toIntOrNull() ?: return null
+                val m = parts[1].toIntOrNull() ?: return null
+                if (m !in 0..59) return null
+                return "%02d:%02d".format(h % 24, m)
+            }
+        }
+    }
 
     /** Направление + цены по всем запрошенным датам. */
     data class RoutePrices(
@@ -204,11 +238,25 @@ class PobedaRepository {
             if (price <= 0) continue
             val depDate = minOffer.optString("depDate")
             if (depDate.isBlank()) continue
+            val airlineRaw = minOffer.optString("airline").takeIf { it.isNotBlank() }
+            val rawFlightTime = minOffer.optString("flightTime").takeIf { it.isNotBlank() }
+            // v2.13: поле flightTime в API — время вылета (HH:mm). Длительность перелёта
+            // для стыковок может превышать 24 ч (например «24:00») — не считаем её временем.
+            val depTime = runCatching {
+                val parts = rawFlightTime?.trim()?.split(":") ?: error("blank")
+                if (parts.size != 2) error("format")
+                val h = parts[0].toInt()
+                val m = parts[1].toInt()
+                require(h in 0..23 && m in 0..59)
+                "%02d:%02d".format(h, m)
+            }.getOrNull()
             val entry = PriceEntry(
                 depDate = depDate,
                 price = price,
-                airline = minOffer.optString("airline").takeIf { it.isNotBlank() },
-                flightTime = minOffer.optString("flightTime").takeIf { it.isNotBlank() },
+                airline = airlineRaw,
+                flightTime = rawFlightTime,
+                legsCount = airlineRaw?.split(",")?.filter { it.isNotBlank() }?.size ?: 1,
+                depTime = depTime,
             )
             result.add(
                 RoutePrices(

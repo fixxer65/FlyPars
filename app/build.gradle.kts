@@ -13,8 +13,8 @@ android {
         applicationId = "ru.pobedamonitor"
         minSdk = 24
         targetSdk = 34
-        versionCode = 23
-        versionName = "2.12"
+        versionCode = 24
+        versionName = "2.13"
     }
 
     buildTypes {

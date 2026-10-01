@@ -20,6 +20,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.temporal.TemporalAdjusters
+import java.time.format.DateTimeFormatter
 
 /** Режимы поиска. */
 enum class SearchMode { ALL_DAYS, WEEKENDS }
@@ -164,8 +165,25 @@ data class UiState(
             val approxReturn: Boolean,
             val outboundPrice: Int,
             val returnPrice: Int,
+            // v2.13: время вылета и прямой/стыковочный для каждого плеча пары
+            val outboundDepTime: String? = null,
+            val outboundDirect: Boolean = true,
+            val returnDepTime: String? = null,
+            val returnDirect: Boolean = true,
         ) {
             val total: Int get() = outboundPrice + returnPrice
+
+            /** Подпись плеча «✈ 09 окт · 14:55 · прямой» (v2.13). */
+            fun legLabel(
+                date: LocalDate,
+                depTime: String?,
+                direct: Boolean,
+                fmt: DateTimeFormatter,
+            ): String {
+                val d = date.format(fmt).replaceFirstChar { it.uppercase() }
+                val t = depTime?.let { " · $it" } ?: ""
+                return "$d$t · ${if (direct) "прямой" else "стык."}"
+            }
         }
 
         /** Полный список пар туда+обратно для этого направления (все даты × все возвраты).
@@ -175,7 +193,17 @@ data class UiState(
                 val list = legs.flatMap { leg ->
                     val o = leg.outbound ?: return@flatMap emptyList()
                     leg.returns.map { (rd, pe) ->
-                        Combo(leg.outboundDate, rd, pe.second, o.price, pe.first.price)
+                        Combo(
+                            depDate = leg.outboundDate,
+                            retDate = rd,
+                            approxReturn = pe.second,
+                            outboundPrice = o.price,
+                            returnPrice = pe.first.price,
+                            outboundDepTime = o.depTime,
+                            outboundDirect = o.isDirect,
+                            returnDepTime = pe.first.depTime,
+                            returnDirect = pe.first.isDirect,
+                        )
                     }
                 }
                 return when (sortOrder) {

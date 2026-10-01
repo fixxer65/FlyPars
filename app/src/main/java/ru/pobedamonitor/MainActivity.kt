@@ -1528,11 +1528,24 @@ private fun TripPairCard(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(Modifier.weight(1f)) {
+                                // v2.13: две строки — туда и обратно, каждая с временем вылета
+                                // и пометкой «прямой/стык.»
                                 Text(
-                                    "✈ ${combo.depDate.format(longFmt).replaceFirstChar { it.uppercase(RU) }}" +
-                                        "   →   ↵ " +
-                                        (if (combo.approxReturn) "≈" else "") +
-                                        combo.retDate.format(longFmt).replaceFirstChar { it.uppercase(RU) },
+                                    "✈ " + combo.legLabel(
+                                        combo.depDate, combo.outboundDepTime,
+                                        combo.outboundDirect, longFmt,
+                                    ),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (isBest) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isBest) MaterialTheme.colorScheme.onSecondaryContainer
+                                            else MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    "↵ " + (if (combo.approxReturn) "≈" else "") +
+                                        combo.legLabel(
+                                            combo.retDate, combo.returnDepTime,
+                                            combo.returnDirect, longFmt,
+                                        ),
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = if (isBest) FontWeight.Bold else FontWeight.Normal,
                                     color = if (isBest) MaterialTheme.colorScheme.onSecondaryContainer
@@ -1746,6 +1759,20 @@ private fun RouteCard(
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = if (isMin) FontWeight.ExtraBold else FontWeight.SemiBold,
                             )
+                            // v2.13: время вылета + прямой/стыковочный для лучшей цены дня
+                            if (isMin) {
+                                entry.depTime?.let {
+                                    Text(
+                                        "✈ $it · ${if (entry.isDirect) "прямой" else "стыковочный"}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                } ?: run {
+                                    Text(
+                                        if (entry.isDirect) "прямой" else "стыковочный",
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                            }
                             formatByn(entry.price, state.bynPerRub)?.let {
                                 Text("≈ $it", style = MaterialTheme.typography.labelSmall)
                             }

@@ -13,6 +13,8 @@ import ru.pobedamonitor.MainActivity
 import ru.pobedamonitor.R
 import ru.pobedamonitor.data.FavoritesRepository
 import ru.pobedamonitor.data.PobedaRepository
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 /**
@@ -147,7 +149,19 @@ class PriceDropNotifier(private val context: Context) {
             title = "🎯 $name$rtLabel: цель достигнута!",
             text = "Цена ${formatPrice(current)} — ниже вашей цели ${formatPrice(target)}. Не упустите!",
             channel = CHANNEL_ID,
+            details = flightDetails(route),
         )
+    }
+
+    /** v2.13: детали лучшего тарифа направления — дата/время вылета, прямой или стыковочный. */
+    private fun flightDetails(route: PobedaRepository.RoutePrices): String? {
+        val best = route.cheapest ?: return null
+        val date = runCatching {
+            java.time.LocalDate.parse(best.depDate)
+                .format(java.time.format.DateTimeFormatter.ofPattern("d MMMM", Locale("ru")))
+        }.getOrDefault(best.depDate)
+        val time = best.depTime?.let { " · выезд $it" } ?: ""
+        return "✈ $date$time · ${if (best.isDirect) "прямой рейс" else "стыковочный"}"
     }
 
     private fun notifyOne(
@@ -170,11 +184,22 @@ class PriceDropNotifier(private val context: Context) {
         }
         val text = "${formatPrice(previous)} → ${formatPrice(current)}"
 
-        postNotification("drop-$code".hashCode(), title, text, CHANNEL_ID, tapRequestCode = code.hashCode())
+        postNotification(
+            "drop-$code".hashCode(), title, text, CHANNEL_ID,
+            tapRequestCode = code.hashCode(),
+            details = flightDetails(route),
+        )
     }
 
     /** Общий конструктор и отправка уведомления (v2.7: переиспользуется для «цели»). */
-    private fun postNotification(tagId: Int, title: String, text: String, channel: String, tapRequestCode: Int = 0) {
+    private fun postNotification(
+        tagId: Int,
+        title: String,
+        text: String,
+        channel: String,
+        tapRequestCode: Int = 0,
+        details: String? = null,
+    ) {
         val tap = PendingIntent.getActivity(
             context, tapRequestCode,
             Intent(context, MainActivity::class.java).apply {
@@ -184,15 +209,25 @@ class PriceDropNotifier(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+        // v2.13: дата и время проверки цен в тексте уведомления + детали рейса
+        val checkedAt = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("ru")).format(Date())
+        val body = buildString {
+            append(text)
+            details?.let { append("\n").append(it) }
+            append("\nПроверено: $checkedAt")
+        }
+
         val notification = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
-            .setContentText(text)
+            .setContentText("$body")
             .setStyle(
                 NotificationCompat.BigTextStyle()
-                    .bigText("$title\n$text")
+                    .bigText("$title\n$body")
             )
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
             .setContentIntent(tap)
             .setAutoCancel(true)
             .build()
