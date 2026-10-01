@@ -7,3 +7,4 @@ app/build/
 .next/
 dist/
 *.log
+node_modules/
