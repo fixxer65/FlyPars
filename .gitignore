@@ -16,3 +16,4 @@ Thumbs.dbnode_modules/
 .next/
 dist/
 *.log
+node_modules/
