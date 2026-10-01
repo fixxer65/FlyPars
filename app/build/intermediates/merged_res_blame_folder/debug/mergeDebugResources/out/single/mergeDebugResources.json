@@ -1,34 +1,34 @@
 [
     {
-        "merged": "/root/.gradle/daemon/8.7/ru.pobedamonitor.app-debug-47:/drawable_ic_notification.xml.flat",
-        "source": "/root/.gradle/daemon/8.7/ru.pobedamonitor.app-main-49:/drawable/ic_notification.xml"
+        "merged": "ru.pobedamonitor.app-debug-56:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "ru.pobedamonitor.app-main-58:/drawable/ic_launcher_foreground.xml"
     },
     {
-        "merged": "/root/.gradle/daemon/8.7/ru.pobedamonitor.app-debug-47:/drawable_ic_launcher_foreground.xml.flat",
-        "source": "/root/.gradle/daemon/8.7/ru.pobedamonitor.app-main-49:/drawable/ic_launcher_foreground.xml"
+        "merged": "ru.pobedamonitor.app-debug-56:/layout_widget_price.xml.flat",
+        "source": "ru.pobedamonitor.app-main-58:/layout/widget_price.xml"
     },
     {
-        "merged": "/root/.gradle/daemon/8.7/ru.pobedamonitor.app-debug-47:/drawable_widget_background.xml.flat",
-        "source": "/root/.gradle/daemon/8.7/ru.pobedamonitor.app-main-49:/drawable/widget_background.xml"
+        "merged": "ru.pobedamonitor.app-debug-56:/drawable_ic_notification.xml.flat",
+        "source": "ru.pobedamonitor.app-main-58:/drawable/ic_notification.xml"
     },
     {
-        "merged": "/root/.gradle/daemon/8.7/ru.pobedamonitor.app-debug-47:/mipmap-anydpi-v26_ic_launcher.xml.flat",
-        "source": "/root/.gradle/daemon/8.7/ru.pobedamonitor.app-main-49:/mipmap-anydpi-v26/ic_launcher.xml"
+        "merged": "ru.pobedamonitor.app-debug-56:/drawable_widget_background.xml.flat",
+        "source": "ru.pobedamonitor.app-main-58:/drawable/widget_background.xml"
     },
     {
-        "merged": "/root/.gradle/daemon/8.7/ru.pobedamonitor.app-debug-47:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
-        "source": "/root/.gradle/daemon/8.7/ru.pobedamonitor.app-main-49:/mipmap-anydpi-v26/ic_launcher_round.xml"
+        "merged": "ru.pobedamonitor.app-debug-56:/xml_widget_info.xml.flat",
+        "source": "ru.pobedamonitor.app-main-58:/xml/widget_info.xml"
     },
     {
-        "merged": "ru.pobedamonitor.app-debug-47:/xml_file_paths.xml.flat",
-        "source": "ru.pobedamonitor.app-main-49:/xml/file_paths.xml"
+        "merged": "ru.pobedamonitor.app-debug-56:/xml_file_paths.xml.flat",
+        "source": "ru.pobedamonitor.app-main-58:/xml/file_paths.xml"
     },
     {
-        "merged": "/root/.gradle/daemon/8.7/ru.pobedamonitor.app-debug-47:/layout_widget_price.xml.flat",
-        "source": "/root/.gradle/daemon/8.7/ru.pobedamonitor.app-main-49:/layout/widget_price.xml"
+        "merged": "ru.pobedamonitor.app-debug-56:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "ru.pobedamonitor.app-main-58:/mipmap-anydpi-v26/ic_launcher_round.xml"
     },
     {
-        "merged": "/root/.gradle/daemon/8.7/ru.pobedamonitor.app-debug-47:/xml_widget_info.xml.flat",
-        "source": "/root/.gradle/daemon/8.7/ru.pobedamonitor.app-main-49:/xml/widget_info.xml"
+        "merged": "ru.pobedamonitor.app-debug-56:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "ru.pobedamonitor.app-main-58:/mipmap-anydpi-v26/ic_launcher.xml"
     }
 ]

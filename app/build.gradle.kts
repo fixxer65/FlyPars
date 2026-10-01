@@ -13,8 +13,8 @@ android {
         applicationId = "ru.pobedamonitor"
         minSdk = 24
         targetSdk = 34
-        versionCode = 18
-        versionName = "2.7"
+        versionCode = 19
+        versionName = "2.8"
     }
 
     buildTypes {
@@ -50,6 +50,9 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+
+    // Фоновая проверка цен (v2.8)
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     // Сеть + JSON
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

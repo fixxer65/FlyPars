@@ -404,6 +404,12 @@ private fun NotificationsRow(state: UiState, vm: PobedaViewModel) {
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // v2.8: WorkManager проверяет цены и шлёт уведомления даже с закрытым приложением.
+                Text(
+                    "Работает в фоне ~раз в сутки (без открытия приложения)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
             Switch(
                 checked = state.notificationsEnabled,

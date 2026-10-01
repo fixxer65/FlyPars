@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "ru.pobedamonitor.app-mergeDebugResources-45:/values-be/values-be.xml",
+            "outputFile": "ru.pobedamonitor.app-mergeDebugResources-54:/values-be/values-be.xml",
             "map": [
                 {
                     "source": "/root/.gradle/caches/transforms-4/30f896d47038be93aced649834f6f931/transformed/material3-release/res/values-be/values-be.xml",

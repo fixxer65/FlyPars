@@ -262,6 +262,14 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
     private val historyRepository = ru.pobedamonitor.data.PriceHistoryRepository(appContext)
     private val dropNotifier = ru.pobedamonitor.notify.PriceDropNotifier(appContext)
 
+    init {
+        // v2.8: если уведомления или цели включены — убеждаемся, что фоновая
+        // проверка цен стоит (переживает обновления приложения).
+        if (favoritesRepository.notificationsEnabled || favoritesRepository.allTargetPrices().isNotEmpty()) {
+            ru.pobedamonitor.notify.PriceCheckWorker.schedule(appContext)
+        }
+    }
+
     private val _state = MutableStateFlow(
         UiState(
             favorites = favoritesRepository.load(),
@@ -379,6 +387,12 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
     fun setNotificationsEnabled(enabled: Boolean) {
         favoritesRepository.notificationsEnabled = enabled
         _state.update { it.copy(notificationsEnabled = enabled) }
+        // v2.8: включаем/выключаем ежедневную фоновую проверку цен.
+        if (enabled || favoritesRepository.allTargetPrices().isNotEmpty()) {
+            ru.pobedamonitor.notify.PriceCheckWorker.schedule(appContext)
+        } else {
+            ru.pobedamonitor.notify.PriceCheckWorker.cancel(appContext)
+        }
     }
 
     /** Изменить порог падения цены для уведомлений, % (v2.4). */
@@ -415,6 +429,12 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
             val map = s.targetPrices.toMutableMap()
             if (v > 0) map[code] = v else map.remove(code)
             s.copy(targetPrices = map)
+        }
+        // v2.8: цели проверяются и в фоне — ставим ежедневную задачу, пока есть хотя бы одна.
+        if (v > 0 || favoritesRepository.notificationsEnabled) {
+            ru.pobedamonitor.notify.PriceCheckWorker.schedule(appContext)
+        } else if (favoritesRepository.allTargetPrices().isEmpty()) {
+            ru.pobedamonitor.notify.PriceCheckWorker.cancel(appContext)
         }
     }
 
