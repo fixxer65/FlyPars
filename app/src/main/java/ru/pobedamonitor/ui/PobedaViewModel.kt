@@ -360,26 +360,32 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
             // хотя бы один хаб должен быть выбран
             s.copy(hubsSelected = if (sel.isEmpty()) setOf(iata) else sel)
         }
+        refresh()
     }
 
     fun setMode(mode: SearchMode) {
         _state.update { it.copy(mode = mode) }
+        refresh()
     }
 
     fun setDate(date: LocalDate) {
         _state.update { it.copy(fromDate = date) }
+        refresh()
     }
 
     fun setDaysCount(count: Int) {
         _state.update { it.copy(daysCount = count.coerceIn(1, 60)) }
+        refresh()
     }
 
     fun setMonth(m: YearMonth) {
         _state.update { it.copy(month = m) }
+        refresh()
     }
 
     fun shiftMonth(delta: Long) {
         _state.update { it.copy(month = it.month.plusMonths(delta)) }
+        refresh()
     }
 
     fun toggleWeekendDay(day: DayOfWeek) {
@@ -388,10 +394,12 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
             if (!sel.remove(day)) sel.add(day)
             s.copy(outboundDays = if (sel.isEmpty()) setOf(day) else sel)
         }
+        refresh()
     }
 
     fun toggleReturnEnabled(enabled: Boolean) {
         _state.update { it.copy(returnEnabled = enabled) }
+        refresh()
     }
 
     fun toggleReturnDay(day: DayOfWeek) {
@@ -400,6 +408,7 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
             if (!sel.remove(day)) sel.add(day)
             s.copy(returnDays = if (sel.isEmpty()) setOf(day) else sel)
         }
+        refresh()
     }
 
     /** Выбор аэропорта(ов) прилёта; пустое множество = все направления. */
@@ -409,10 +418,13 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
             if (!sel.remove(iata)) sel.add(iata)
             s.copy(destinationsSelected = sel)
         }
+        // v2.18: фильтр «Куда» влияет на список — обновляем сразу (без сети, из кэса).
+        refresh()
     }
 
     fun clearDestinations() {
         _state.update { it.copy(destinationsSelected = emptySet()) }
+        refresh()
     }
 
     /** Циклическое переключение сортировки: без → по возрастанию → по убыванию. */

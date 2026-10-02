@@ -240,6 +240,9 @@ fun MainScreen(
             Spacer(Modifier.height(6.dp))
             RateAndUpdatedChip(state)
             FilterCard(state = state, vm = vm)
+            Spacer(Modifier.height(8.dp))
+            // v2.18: уведомления — отдельная складываемая карточка под параметрами.
+            NotificationsCard(state = state, vm = vm)
 
             val visible = state.visibleRoutes()
             when {
@@ -322,16 +325,21 @@ private fun RateAndUpdatedChip(state: UiState) {
     }
 }
 
-/** Все элементы управления аккуратно собраны в одной «тонированной» карточке.
- *  v2.15: компактный двухуровневый вид — заголовок с сутью фильтров, лента ключевых
- *  чипов (режим / избранное / тип рейса / дата / сортировка / «⚙ Ещё»), а под «Ещё»
- *  прячутся хабы, направления, даты выходных и уведомления. Весь функционал сохранён. */
+/**
+ * Карточка «Параметры поиска».
+ * v2.18: редизайн логики — карточка больше не сворачивается целиком; она всегда
+ * содержит три секции с индивидуальными заголовками-переключателями:
+ *   1) «Где искать» — откуда + куда (одна строка);
+ *   2) «Когда» — режим 📅/🌤 + период (дата+дни или месяц+дни недели+обратно);
+ *   3) «Список» — ⭐ избранные, ✈ тип рейса, сортировка (одна горизонтальная строка).
+ * Секция «🔔 Уведомления» вынесена из карточки в отдельную складываемую карточку
+ * внизу (по умолчанию свёрнута в одну строку-заголовок). Весь функционал сохранён,
+ * но объём прокрутки и количество тапов до нужной настройки заметно меньше.
+ */
 @Composable
 private fun FilterCard(state: UiState, vm: PobedaViewModel) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
-
-    // v2.9: ограничиваем высоту развёрнутой карточки ~70% экрана. Внутри — verticalScroll.
-    val maxHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.70f
+    // v2.9: ограничиваем высоту карточки ~65% экрана. Внутри — verticalScroll.
+    val maxHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.65f
 
     Card(
         modifier = Modifier
@@ -340,79 +348,177 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
             .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
         shape = RoundedCornerShape(26.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (expanded) 4.dp else 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            // Заголовок-переключатель: всегда виден, показывает суть выбранных фильтров
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Default.Tune,
-                    null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "Параметры поиска",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        filterSummary(state),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    )
-                }
-                Icon(
-                    Icons.Default.ExpandMore,
-                    if (expanded) "Свернуть" else "Развернуть",
-                    modifier = Modifier.rotate(if (expanded) 180f else 0f),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+            // ── Строка 1: Откуда → Куда ────────────────────────────────
+            SectionHeader("Где искать", filterWhereSummary(state))
+            HubChips(state, vm)
+            Spacer(Modifier.height(6.dp))
+            DestinationPicker(state, vm)
+
+            HorizontalDivider(Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+            // ── Строка 2: Когда (режим + период) ───────────────────────
+            SectionHeader("Когда", if (state.mode == SearchMode.ALL_DAYS)
+                "с ${state.fromDate.dayOfMonth}.${"%02d".format(state.fromDate.monthValue)} · ${state.daysCount} дн."
+            else state.month.atDay(1).format(DateTimeFormatter.ofPattern("MMMM yyyy", RU))
+                .replaceFirstChar { it.uppercase(RU) })
+            ModeToggle(state, vm)
+            Spacer(Modifier.height(6.dp))
+            if (state.mode == SearchMode.ALL_DAYS) {
+                AllDaysControls(state, vm)
+            } else {
+                WeekendsControls(state, vm)
             }
 
-            // v2.15: лента ключевых переключателей — всегда видна, занимает 1 строку
-            CompactChipRow(state, vm, expanded) { expanded = it }
+            HorizontalDivider(Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
-            if (expanded) {
-                Column(
-                    Modifier.padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
+            // ── Строка 3: Список (избранное / тип рейса / сортировка) ──
+            SectionHeader("Список", "фильтры и порядок")
+            ListTogglesRow(state, vm)
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+/** Компактный заголовок секции карточки: название + короткая сводка. */
+@Composable
+private fun SectionHeader(title: String, summary: String) {
+    Row(
+        Modifier.padding(bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            summary,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+private fun filterWhereSummary(state: UiState): String {
+    val hubs = state.hubsSelected.sorted().joinToString("/") {
+        PobedaRepository.HUBS.firstOrNull { h -> h.iata == it }?.name ?: it
+    }.ifBlank { "—" }
+    val dest = when {
+        state.destinationsSelected.isEmpty() -> "все"
+        state.destinationsSelected.size == 1 ->
+            Airports.nameOf(state.destinationsSelected.first())
+        else -> "${state.destinationsSelected.size} напр."
+    }
+    return "$hubs → $dest"
+}
+
+/** Сегментированный переключатель режима поиска: 📅 Все дни / 🌤 Выходные. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModeToggle(state: UiState, vm: PobedaViewModel) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        data class Opt(val mode: SearchMode, val label: String)
+        listOf(
+            Opt(SearchMode.ALL_DAYS, "📅 Все дни"),
+            Opt(SearchMode.WEEKENDS, "🌤 Выходные"),
+        ).forEach { opt ->
+            val selected = state.mode == opt.mode
+            Surface(
+                onClick = { vm.setMode(opt.mode) },
+                shape = RoundedCornerShape(50),
+                color = if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = if (selected) MaterialTheme.colorScheme.onPrimary
+                               else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            ) {
+                Box(
+                    Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Spacer(Modifier.height(4.dp))
-                    HubChips(state, vm)
-                    Spacer(Modifier.height(8.dp))
-                    DestinationPicker(state, vm)
-                    Spacer(Modifier.height(6.dp))
-                    SortTabs(state, vm)
-                    Spacer(Modifier.height(6.dp))
-                    if (state.mode == SearchMode.ALL_DAYS) {
-                        AllDaysControls(state, vm)
-                    } else {
-                        WeekendsControls(state, vm)
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    NotificationsRow(state, vm)
+                    Text(
+                        opt.label,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1,
+                    )
                 }
             }
         }
     }
 }
 
-/**
- * v2.15: горизонтальная лента самых важных переключателей — режим поиска, фильтр
- * «избранные», тип рейса (прямые/стыковочные), быстрый выбор даты, компактная
- * сортировка и кнопка «⚙ Ещё». Заменяет три крупных сегментированных блока.
- */
+/** Одна горизонтальная строка: ⭐ избранное, тип рейса, сортировка. */
+@Composable
+private fun ListTogglesRow(state: UiState, vm: PobedaViewModel) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FilterChip(
+            selected = state.listFilter == ListFilter.FAVORITES,
+            onClick = {
+                vm.setListFilter(
+                    if (state.listFilter == ListFilter.FAVORITES) ListFilter.ALL
+                    else ListFilter.FAVORITES
+                )
+            },
+            label = { Text("⭐ ${state.favorites.size}", maxLines = 1) },
+            leadingIcon = {
+                Icon(
+                    if (state.listFilter == ListFilter.FAVORITES) Icons.Default.Star
+                    else Icons.Outlined.StarBorder,
+                    null,
+                    modifier = Modifier.size(18.dp),
+                )
+            },
+            shape = RoundedCornerShape(50),
+        )
+        // Тип рейса: все -> только прямые -> только стыковочные -> все
+        val directLabel = when (state.directFilter) {
+            DirectFilter.ALL -> "Рейсы: все"
+            DirectFilter.DIRECT_ONLY -> "✈ Прямые"
+            DirectFilter.TRANSFER_ONLY -> "🔄 Стыковки"
+        }
+        FilterChip(
+            selected = state.directFilter != DirectFilter.ALL,
+            onClick = {
+                val next = when (state.directFilter) {
+                    DirectFilter.ALL -> DirectFilter.DIRECT_ONLY
+                    DirectFilter.DIRECT_ONLY -> DirectFilter.TRANSFER_ONLY
+                    DirectFilter.TRANSFER_ONLY -> DirectFilter.ALL
+                }
+                vm.setDirectFilter(next)
+            },
+            label = { Text(directLabel, maxLines = 1) },
+            trailingIcon = {
+                if (state.directFilter != DirectFilter.ALL) {
+                    Icon(Icons.Default.Close, "Сбросить", modifier = Modifier.size(16.dp))
+                }
+            },
+            shape = RoundedCornerShape(50),
+        )
+        SortDropdown(state, vm)
+    }
+}
+
+/** v2.15: горизонтальная лента самых важных переключателей — режим поиска, фильтр
+ *  «избранные», тип рейса (прямые/стыковочные), быстрый выбор даты, компактная
+ *  сортировка и кнопка «⚙ Ещё». Заменяет три крупных сегментированных блока.
+ *  v2.18: оставлена для совместимости, больше не используется в FilterCard. */
+@Suppress("unused")
 @Composable
 private fun CompactChipRow(
     state: UiState,
@@ -432,7 +538,7 @@ private fun CompactChipRow(
             onClick = {
                 val next = if (state.mode == SearchMode.ALL_DAYS)
                     SearchMode.WEEKENDS else SearchMode.ALL_DAYS
-                vm.setMode(next); vm.refresh()
+                vm.setMode(next)
             },
             label = {
                 Text(
@@ -462,7 +568,6 @@ private fun CompactChipRow(
             },
             shape = RoundedCornerShape(50),
         )
-        // Тип рейса: все -> только прямые -> только стыковочные -> все
         val directLabel = when (state.directFilter) {
             DirectFilter.ALL -> "Рейсы: все"
             DirectFilter.DIRECT_ONLY -> "✈ Только прямые"
@@ -496,7 +601,7 @@ private fun CompactChipRow(
                     DatePickerDialog(
                         context,
                         { _, y, m, day ->
-                            vm.setDate(LocalDate.of(y, m + 1, day)); vm.refresh()
+                            vm.setDate(LocalDate.of(y, m + 1, day))
                         },
                         d.year, d.monthValue - 1, d.dayOfMonth,
                     ).apply {
@@ -779,7 +884,8 @@ private fun NotificationsRow(state: UiState, vm: PobedaViewModel) {
     }
 }
 
-/** Короткое описание текущих фильтров для свёрнутого состояния. */
+/** Короткое описание текущих фильтров. v2.18: используется заголовком карточки
+ *  «🔔 Уведомления» (показывает, что именно отслеживается, в свёрнутом виде). */
 private fun filterSummary(state: UiState): String {
     val hubs = state.hubsSelected.sorted().joinToString("/") {
         PobedaRepository.HUBS.firstOrNull { h -> h.iata == it }?.name ?: it
@@ -809,6 +915,92 @@ private fun filterSummary(state: UiState): String {
 private fun UiState.modeLabel(): String = when (mode) {
     SearchMode.ALL_DAYS -> "Все дни"
     SearchMode.WEEKENDS -> "Выходные"
+}
+
+/**
+ * v2.18: отдельная складываемая карточка «🔔 Уведомления».
+ * В свёрнутом состоянии — одна строка с понятной сводкой настроек; весь блок
+ * настроек (порог, база, интервал) раскрывается по тапу.
+ */
+@Composable
+private fun NotificationsCard(state: UiState, vm: PobedaViewModel) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
+    val summary = if (!state.notificationsEnabled) {
+        "выключены · цена упала / 🎯 цель"
+    } else {
+        val mode = if (state.notifyMode == ru.pobedamonitor.data.FavoritesRepository.MODE_PERCENT)
+            "−${state.dropThresholdPercent}%"
+        else {
+            val amt = String.format(Locale("ru"), "%,d", state.dropThresholdAmount)
+                .replace(',', ' ')
+            "−$amt ₽"
+        }
+        val base = if (state.notifyRoundTrip) "туда+обратно" else "только туда"
+        val interval = when (state.checkIntervalHours) {
+            1 -> "раз в час"
+            6 -> "раз в 6 ч"
+            else -> "раз в сутки"
+        }
+        "вкл · $mode ($base) · проверка $interval"
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+            // Заголовок-переключатель + быстрый Switch прямо в нём
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("🔔", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Уведомления",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        summary,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (state.notificationsEnabled) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                }
+                Switch(
+                    checked = state.notificationsEnabled,
+                    onCheckedChange = { on ->
+                        val activity = LocalContext.current as? MainActivity
+                        if (on) enableNotificationsWithPermission(activity, vm)
+                        else vm.setNotificationsEnabled(false)
+                    },
+                )
+                Icon(
+                    Icons.Default.ExpandMore,
+                    if (expanded) "Свернуть" else "Развернуть",
+                    modifier = Modifier.rotate(if (expanded) 180f else 0f),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(Modifier.padding(top = 4.dp)) {
+                    NotificationsRow(state, vm)
+                }
+            }
+        }
+    }
 }
 
 /** Звёздочка избранного на карточке направления. */
@@ -896,7 +1088,7 @@ private fun HubChips(state: UiState, vm: PobedaViewModel) {
             val selected = hub.iata in state.hubsSelected
             FilterChip(
                 selected = selected,
-                onClick = { vm.toggleHub(hub.iata); vm.refresh() },
+                onClick = { vm.toggleHub(hub.iata) },
                 label = { Text(hub.name, fontWeight = FontWeight.Medium) },
                 leadingIcon = {
                     if (selected) {
@@ -1032,7 +1224,6 @@ private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
                 context,
                 { _, y, m, day ->
                     vm.setDate(LocalDate.of(y, m + 1, day))
-                    vm.refresh()
                 },
                 d.year, d.monthValue - 1, d.dayOfMonth,
             ).apply {
@@ -1047,7 +1238,7 @@ private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
         listOf(7, 14, 30).forEach { days ->
             FilterChip(
                 selected = state.daysCount == days,
-                onClick = { vm.setDaysCount(days); vm.refresh() },
+                onClick = { vm.setDaysCount(days) },
                 label = { Text("${days} дн.") },
                 shape = RoundedCornerShape(50),
             )
@@ -1073,7 +1264,7 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
                 Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = { vm.shiftMonth(-1); vm.refresh() }) {
+                IconButton(onClick = { vm.shiftMonth(-1) }) {
                     Icon(Icons.Default.ChevronRight, "Предыдущий месяц",
                         modifier = Modifier.rotate(180f))
                 }
@@ -1093,7 +1284,7 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                IconButton(onClick = { vm.shiftMonth(+1); vm.refresh() }) {
+                IconButton(onClick = { vm.shiftMonth(+1) }) {
                     Icon(Icons.Default.ChevronRight, "Следующий месяц")
                 }
                 IconButton(onClick = { monthPickerOpen = true }) {
@@ -1117,7 +1308,6 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
                             val d = java.time.Instant.ofEpochMilli(millis)
                                 .atZone(java.time.ZoneOffset.UTC).toLocalDate()
                             vm.setMonth(java.time.YearMonth.of(d.year, d.monthValue))
-                            vm.refresh()
                         }
                         monthPickerOpen = false
                     }) { Text("ОК") }
@@ -1144,7 +1334,7 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
             caption = "✈ Туда:",
             selected = state.outboundDays,
             accent = MaterialTheme.colorScheme.primary,
-            onToggle = { day -> vm.toggleWeekendDay(day); vm.refresh() },
+            onToggle = { day -> vm.toggleWeekendDay(day) },
         )
 
         // Переключатель обратных билетов — красивый Switch вместо чекбокса
@@ -1176,7 +1366,7 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
                 )
                 Switch(
                     checked = state.returnEnabled,
-                    onCheckedChange = { vm.toggleReturnEnabled(it); vm.refresh() },
+                    onCheckedChange = { vm.toggleReturnEnabled(it) },
                 )
             }
         }
@@ -1186,7 +1376,7 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
                 caption = "↵ Обратно:",
                 selected = state.returnDays,
                 accent = MaterialTheme.colorScheme.tertiary,
-                onToggle = { day -> vm.toggleReturnDay(day); vm.refresh() },
+                onToggle = { day -> vm.toggleReturnDay(day) },
             )
         }
     }
