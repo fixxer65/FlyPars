@@ -65,6 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
@@ -236,9 +237,11 @@ fun MainScreen(
             Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 14.dp),
+                // v2.19: чуть меньше боковые поля — контент ближе к центру,
+                // длинным подписям хватает ширины, текст перестаёт обрезаться.
+                .padding(horizontal = 10.dp),
         ) {
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(4.dp))
             RateAndUpdatedChip(state)
             FilterCard(state = state, vm = vm)
             Spacer(Modifier.height(8.dp))
@@ -286,22 +289,22 @@ fun MainScreen(
     }
 }
 
-/** Компактная плашка: курс BYN + время обновления. */
+/** Компактная плашка: курс BYN + время обновления в одну строку по центру. */
 @Composable
 private fun RateAndUpdatedChip(state: UiState) {
+    // v2.19: источник курса больше не подписываем — длинная строка обрезалась по краям;
+    // смысл тот же, строкa всегда помещается целиком.
     val rateText = when {
-        state.bynPerRub != null -> {
-            val src = state.rateSource?.let { " · $it" } ?: ""
-            "Курс: 1 RUB = ${String.format(RU, "%.4f", state.bynPerRub)} BYN$src"
-        }
+        state.bynPerRub != null ->
+            "Курс: 1 ₽ = ${String.format(RU, "%.3f", state.bynPerRub)} BYN"
         state.rateError != null -> "Курс BYN недоступен"
         else -> "Загружаем курс BYN…"
     }
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(bottom = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .padding(bottom = 6.dp),
+        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Surface(
@@ -310,17 +313,15 @@ private fun RateAndUpdatedChip(state: UiState) {
             tonalElevation = 1.dp,
         ) {
             Text(
-                rateText,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                buildString {
+                    append(rateText)
+                    state.lastUpdated?.let { append("   ·   обновлено $it") }
+                },
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-        }
-        state.lastUpdated?.let {
-            Text(
-                "обновлено $it",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
         }
     }
@@ -347,19 +348,25 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
             .fillMaxWidth()
             .heightIn(max = maxHeight)
             .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Column(Modifier.verticalScroll(rememberScrollState())) {
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                // v2.19: внутренний отступ карточки — единый для всех секций,
+                // элементы больше не «расползаются» к краям.
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        ) {
             // ── «Где искать»: хабы + куда (одна секция) ────────────────
             SectionHeader("Где искать", filterWhereSummary(state))
             HubChips(state, vm)
             Spacer(Modifier.height(6.dp))
             DestinationPicker(state, vm)
 
-            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(Modifier.padding(vertical = 7.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
             // ── «Когда»: режим + период ────────────────────────────────
             SectionHeader("Когда", if (state.mode == SearchMode.ALL_DAYS)
@@ -367,19 +374,19 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
             else state.month.atDay(1).format(DateTimeFormatter.ofPattern("MMMM yyyy", RU))
                 .replaceFirstChar { it.uppercase(RU) })
             ModeToggle(state, vm)
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(5.dp))
             if (state.mode == SearchMode.ALL_DAYS) {
                 AllDaysControls(state, vm)
             } else {
                 WeekendsControls(state, vm) { vm.refresh() }
             }
 
-            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(Modifier.padding(vertical = 7.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
             // ── «Список» (избранное / тип рейса / сортировка) ──────────
             SectionHeader("Список", "фильтры и порядок")
             ListTogglesRow(state, vm)
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(2.dp))
         }
     }
 }
@@ -426,7 +433,7 @@ private fun filterWhereSummary(state: UiState): String {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModeToggle(state: UiState, vm: PobedaViewModel) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         data class Opt(val mode: SearchMode, val label: String)
         listOf(
             Opt(SearchMode.ALL_DAYS, "📅 Все дни"),
@@ -443,14 +450,16 @@ private fun ModeToggle(state: UiState, vm: PobedaViewModel) {
                 modifier = Modifier.weight(1f),
             ) {
                 Box(
-                    Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                    // v2.19: компакчнее — меньше вертикальные отступы.
+                    Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         opt.label,
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                         maxLines = 1,
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
@@ -461,31 +470,24 @@ private fun ModeToggle(state: UiState, vm: PobedaViewModel) {
 /** Одна горизонтальная строка: ⭐ избранное, тип рейса, сортировка. */
 @Composable
 private fun ListTogglesRow(state: UiState, vm: PobedaViewModel) {
+    // v2.19: чипы уменьшены до CompactChip/SmallChip — строка целиком помещается
+    // на узких экранах без обрезки подписей по краям.
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        FilterChip(
+        SmallChip(
             selected = state.listFilter == ListFilter.FAVORITES,
+            label = "⭐ ${state.favorites.size}",
+            icon = if (state.listFilter == ListFilter.FAVORITES) Icons.Default.Star
+                   else Icons.Outlined.StarBorder,
             onClick = {
                 vm.setListFilter(
                     if (state.listFilter == ListFilter.FAVORITES) ListFilter.ALL
                     else ListFilter.FAVORITES
                 )
             },
-            label = { Text("⭐ ${state.favorites.size}", maxLines = 1) },
-            leadingIcon = {
-                Icon(
-                    if (state.listFilter == ListFilter.FAVORITES) Icons.Default.Star
-                    else Icons.Outlined.StarBorder,
-                    null,
-                    modifier = Modifier.size(18.dp),
-                )
-            },
-            shape = RoundedCornerShape(50),
         )
         // Тип рейса: все -> только прямые -> только стыковочные -> все
         val directLabel = when (state.directFilter) {
@@ -493,8 +495,10 @@ private fun ListTogglesRow(state: UiState, vm: PobedaViewModel) {
             DirectFilter.DIRECT_ONLY -> "✈ Прямые"
             DirectFilter.TRANSFER_ONLY -> "🔄 Стыковки"
         }
-        FilterChip(
+        SmallChip(
             selected = state.directFilter != DirectFilter.ALL,
+            label = directLabel,
+            icon = null,
             onClick = {
                 val next = when (state.directFilter) {
                     DirectFilter.ALL -> DirectFilter.DIRECT_ONLY
@@ -503,15 +507,35 @@ private fun ListTogglesRow(state: UiState, vm: PobedaViewModel) {
                 }
                 vm.setDirectFilter(next)
             },
-            label = { Text(directLabel, maxLines = 1) },
-            trailingIcon = {
-                if (state.directFilter != DirectFilter.ALL) {
-                    Icon(Icons.Default.Close, "Сбросить", modifier = Modifier.size(16.dp))
-                }
-            },
-            shape = RoundedCornerShape(50),
         )
         SortDropdown(state, vm)
+    }
+}
+
+/** Компактный чип-переключатель с опциональной иконкой (v2.19). */
+@Composable
+private fun SmallChip(
+    selected: Boolean,
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector?,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+                       else MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Row(
+            Modifier.padding(start = if (icon != null) 8.dp else 11.dp, end = 11.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            icon?.let { Icon(it, null, modifier = Modifier.size(15.dp)) }
+            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        }
     }
 }
 
@@ -642,20 +666,16 @@ private fun CompactChipRow(
 private fun SortDropdown(state: UiState, vm: PobedaViewModel) {
     var menuOpen by remember { mutableStateOf(false) }
     Box {
-        AssistChip(
-            onClick = { menuOpen = true },
-            label = {
-                Text(
-                    when (state.sortOrder) {
-                        SortOrder.NONE -> "Сортировка ▾"
-                        SortOrder.ASC -> "Цена ↑"
-                        SortOrder.DESC -> "Цена ↓"
-                    },
-                    maxLines = 1,
-                )
+        // v2.19: тот же SmallChip-стиль, что и соседние чипы — единая высота строки.
+        SmallChip(
+            selected = state.sortOrder != SortOrder.NONE,
+            label = when (state.sortOrder) {
+                SortOrder.NONE -> "Сортировка ▾"
+                SortOrder.ASC -> "Цена ↑"
+                SortOrder.DESC -> "Цена ↓"
             },
-            leadingIcon = { Icon(Icons.Default.Sort, null, modifier = Modifier.size(18.dp)) },
-            shape = RoundedCornerShape(50),
+            icon = Icons.Default.Sort,
+            onClick = { menuOpen = true },
         )
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             listOf(
@@ -719,9 +739,11 @@ private fun NotificationsRow(state: UiState, vm: PobedaViewModel) {
                     fontWeight = FontWeight.Medium,
                 )
                 Text(
-                    "Только для ⭐ избранных направлений · не чаще раза в 3 часа",
+                    "Только для ⭐ избранных · не чаще раза в 3 часа",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
                 // v2.8: WorkManager проверяет цены и шлёт уведомления даже с закрытым приложением.
                 // v2.11: интервал сокращён до ~1 часа; v2.12: интервал выбирается пользователем.
@@ -729,6 +751,8 @@ private fun NotificationsRow(state: UiState, vm: PobedaViewModel) {
                     "Работает в фоне без открытия приложения",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
             }
             Switch(
@@ -742,29 +766,32 @@ private fun NotificationsRow(state: UiState, vm: PobedaViewModel) {
         if (state.notificationsEnabled) {
             Spacer(Modifier.height(6.dp))
 
+            // v2.19: подписи вынесены над группами чипов, сами группы центрированы —
+            // строки больше не упираются в края экрана и не обрезаются.
+
             // v2.6: база цены — «только туда» или «туда и обратно».
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Считать цену:",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Text(
+                "Считать цену:",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(2.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            ) {
+                SmallChip(
+                    selected = !state.notifyRoundTrip,
+                    label = "только туда",
+                    icon = null,
+                    onClick = { vm.setNotifyRoundTrip(false) },
                 )
-                Spacer(Modifier.width(8.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                ) {
-                    FilterChip(
-                        selected = !state.notifyRoundTrip,
-                        onClick = { vm.setNotifyRoundTrip(false) },
-                        label = { Text("только туда", maxLines = 1) },
-                    )
-                    FilterChip(
-                        selected = state.notifyRoundTrip,
-                        onClick = { vm.setNotifyRoundTrip(true) },
-                        label = { Text("туда + обратно", maxLines = 1) },
-                    )
-                }
+                SmallChip(
+                    selected = state.notifyRoundTrip,
+                    label = "туда + обратно",
+                    icon = null,
+                    onClick = { vm.setNotifyRoundTrip(true) },
+                )
             }
             if (state.notifyRoundTrip) {
                 Text(
@@ -774,39 +801,42 @@ private fun NotificationsRow(state: UiState, vm: PobedaViewModel) {
                 )
             }
 
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
 
             // v2.6: режим порога — проценты или конкретная сумма (₽).
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Реагировать на падение:",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Text(
+                "Реагировать на падение:",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(2.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            ) {
+                SmallChip(
+                    selected = state.notifyMode == ru.pobedamonitor.data.FavoritesRepository.MODE_PERCENT,
+                    label = "в %",
+                    icon = null,
+                    onClick = { vm.setNotifyMode(ru.pobedamonitor.data.FavoritesRepository.MODE_PERCENT) },
                 )
-                Spacer(Modifier.width(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(
-                        selected = state.notifyMode == ru.pobedamonitor.data.FavoritesRepository.MODE_PERCENT,
-                        onClick = { vm.setNotifyMode(ru.pobedamonitor.data.FavoritesRepository.MODE_PERCENT) },
-                        label = { Text("в %", maxLines = 1) },
-                    )
-                    FilterChip(
-                        selected = state.notifyMode == ru.pobedamonitor.data.FavoritesRepository.MODE_AMOUNT,
-                        onClick = { vm.setNotifyMode(ru.pobedamonitor.data.FavoritesRepository.MODE_AMOUNT) },
-                        label = { Text("на сумму ₽", maxLines = 1) },
-                    )
-                }
+                SmallChip(
+                    selected = state.notifyMode == ru.pobedamonitor.data.FavoritesRepository.MODE_AMOUNT,
+                    label = "на сумму ₽",
+                    icon = null,
+                    onClick = { vm.setNotifyMode(ru.pobedamonitor.data.FavoritesRepository.MODE_AMOUNT) },
+                )
             }
 
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
 
             if (state.notifyMode == ru.pobedamonitor.data.FavoritesRepository.MODE_PERCENT) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Порог: −${state.dropThresholdPercent}%",
+                        "−${state.dropThresholdPercent}%",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.width(74.dp),
+                        modifier = Modifier.width(52.dp),
                     )
                     Slider(
                         value = state.dropThresholdPercent.toFloat(),
@@ -820,58 +850,60 @@ private fun NotificationsRow(state: UiState, vm: PobedaViewModel) {
                 var amountText by remember(state.dropThresholdAmount) {
                     mutableStateOf(if (state.dropThresholdAmount > 0) state.dropThresholdAmount.toString() else "")
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = amountText,
-                        onValueChange = { raw ->
-                            val filtered = raw.filter { it.isDigit() }.take(7)
-                            amountText = filtered
-                            vm.setDropAmountRub(filtered.toIntOrNull() ?: 0)
-                        },
-                        label = { Text("Падение минимум на, ₽") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "₽",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(
+                    value = amountText,
+                    onValueChange = { raw ->
+                        val filtered = raw.filter { it.isDigit() }.take(7)
+                        amountText = filtered
+                        vm.setDropAmountRub(filtered.toIntOrNull() ?: 0)
+                    },
+                    label = { Text("Падение минимум на, ₽") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                ) {
                     listOf(1000, 2000, 3000, 5000).forEach { preset ->
-                        AssistChip(
+                        val amtLabel = String.format(Locale("ru"), "%,d", preset).replace(',', ' ') + " ₽"
+                        SmallChip(
+                            selected = state.dropThresholdAmount == preset,
+                            label = amtLabel,
+                            icon = null,
                             onClick = { vm.setDropAmountRub(preset) },
-                            label = { Text(String.format(Locale("ru"), "%,d", preset).replace(',', ' ') + " ₽") },
                         )
                     }
                 }
             }
 
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
 
             // v2.12: выбор интервала фоновой проверки цен (минимум Android — 1 час).
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Проверять в фоне:",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.width(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(
-                        1 to "раз в час",
-                        6 to "раз в 6 ч",
-                        24 to "раз в сутки",
-                    ).forEach { (hours, label) ->
-                        FilterChip(
-                            selected = state.checkIntervalHours == hours,
-                            onClick = { vm.setCheckInterval(hours) },
-                            label = { Text(label, maxLines = 1) },
-                        )
-                    }
+            Text(
+                "Проверять в фоне:",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(2.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            ) {
+                listOf(
+                    1 to "раз в час",
+                    6 to "раз в 6 ч",
+                    24 to "раз в сутки",
+                ).forEach { (hours, label) ->
+                    SmallChip(
+                        selected = state.checkIntervalHours == hours,
+                        label = label,
+                        icon = null,
+                        onClick = { vm.setCheckInterval(hours) },
+                    )
                 }
             }
             if (state.checkIntervalHours > 1) {
@@ -952,13 +984,15 @@ private fun NotificationsCard(state: UiState, vm: PobedaViewModel) {
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
-            // Заголовок-переключатель + быстрый Switch прямо в нём
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+            // Заголовок-переключатель + быстрый Switch прямо в нём.
+            // v2.19: Switch уменьшен (scale 0.85), стрелка — вплотную без наложения;
+            // сводка обрезается многоточием, а не «расползается» за край.
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -966,12 +1000,13 @@ private fun NotificationsCard(state: UiState, vm: PobedaViewModel) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("🔔", style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(7.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
                         "Уведомления",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
                     )
                     Text(
                         summary,
@@ -982,17 +1017,24 @@ private fun NotificationsCard(state: UiState, vm: PobedaViewModel) {
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
                 }
-                Switch(
-                    checked = state.notificationsEnabled,
-                    onCheckedChange = { on ->
-                        if (on) enableNotificationsWithPermission(activity, vm)
-                        else vm.setNotificationsEnabled(false)
-                    },
-                )
+                Box(
+                    Modifier
+                        .graphicsLayer { scaleX = 0.82f; scaleY = 0.82f }
+                        .width(52.dp).height(32.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Switch(
+                        checked = state.notificationsEnabled,
+                        onCheckedChange = { on ->
+                            if (on) enableNotificationsWithPermission(activity, vm)
+                            else vm.setNotificationsEnabled(false)
+                        },
+                    )
+                }
                 Icon(
                     Icons.Default.ExpandMore,
                     if (expanded) "Свернуть" else "Развернуть",
-                    modifier = Modifier.rotate(if (expanded) 180f else 0f),
+                    modifier = Modifier.size(20.dp).rotate(if (expanded) 180f else 0f),
                     tint = MaterialTheme.colorScheme.primary,
                 )
             }
@@ -1074,12 +1116,11 @@ private fun SortTabs(state: UiState, vm: PobedaViewModel) {
 /** Чипы выбора хабов (Москва / Минск). */
 @Composable
 private fun HubChips(state: UiState, vm: PobedaViewModel) {
-    // v2.18: хабы — компактные чипы с IATA-кодом; подписи и отступы уменьшены.
+    // v2.19: компактные чипы «Москва MOW» — без «·», уменьшенный шрифт; строка
+    // с подписью «Откуда:» целиком помещается и центрируется.
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -1089,17 +1130,11 @@ private fun HubChips(state: UiState, vm: PobedaViewModel) {
         )
         PobedaRepository.HUBS.forEach { hub ->
             val selected = hub.iata in state.hubsSelected
-            FilterChip(
+            SmallChip(
                 selected = selected,
+                label = "${hub.name} ${hub.iata}",
+                icon = null,
                 onClick = { vm.toggleHub(hub.iata); vm.refreshSoon() },
-                label = {
-                    Text(
-                        "${hub.name} · ${hub.iata}",
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                        maxLines = 1,
-                    )
-                },
-                shape = RoundedCornerShape(50),
             )
         }
     }
@@ -1128,8 +1163,8 @@ private fun DestinationPicker(state: UiState, vm: PobedaViewModel) {
     }
 
     Box(Modifier.fillMaxWidth()) {
-        // v2.18: компактная строка «Куда» вместо высокого текстового поля —
-        // та же функциональность (поиск + мультивыбор в DropdownMenu), меньше высоты.
+        // v2.19: компактная строка «Куда» — единый внутренний отступ 8.dp, чтобы
+        // левый край совпадал с остальными элементами карточки (без «расползания»).
         Surface(
             onClick = { expanded = true },
             shape = RoundedCornerShape(14.dp),
@@ -1137,15 +1172,15 @@ private fun DestinationPicker(state: UiState, vm: PobedaViewModel) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(
-                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                Modifier.padding(horizontal = 8.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
                     Icons.Default.Search, null,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(17.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(6.dp))
                 Text("Куда:", style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.width(6.dp))
@@ -1167,10 +1202,10 @@ private fun DestinationPicker(state: UiState, vm: PobedaViewModel) {
                 if (state.destinationsSelected.isNotEmpty()) {
                     TextButton(
                         onClick = { vm.clearDestinations() },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    ) { Text("Сброс ✕", style = MaterialTheme.typography.labelMedium) }
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    ) { Text("✕", style = MaterialTheme.typography.labelLarge) }
                 } else {
-                    Icon(Icons.Default.ExpandMore, null)
+                    Icon(Icons.Default.ExpandMore, null, modifier = Modifier.size(20.dp))
                 }
             }
         }
@@ -1231,51 +1266,66 @@ private fun Modifier.clickableBox(onClick: () -> Unit): Modifier {
 @Composable
 private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
     val context = LocalContext.current
-    val dateFmt = remember { DateTimeFormatter.ofPattern("dd MMM yyyy", RU) }
+    val dateFmt = remember { DateTimeFormatter.ofPattern("d MMM", RU) }
 
+    // v2.19: строка центрирована и компактна — кнопка даты без «хвоста» года,
+    // чипы дней уменьшены, всё помещается на одном экране без горизонтального
+    // скролла и обрезки по краям.
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
     ) {
-        FilledTonalButton(onClick = {
-            val d = state.fromDate
-            DatePickerDialog(
-                context,
-                { _, y, m, day ->
-                    vm.setDate(LocalDate.of(y, m + 1, day)); vm.refreshSoon()
-                },
-                d.year, d.monthValue - 1, d.dayOfMonth,
-            ).apply {
-                datePicker.minDate = System.currentTimeMillis() - 24L * 3600 * 1000
-            }.show()
-        }, shape = RoundedCornerShape(14.dp)) {
-            Icon(Icons.Default.DateRange, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(state.fromDate.format(dateFmt), fontWeight = FontWeight.Medium)
+        Surface(
+            onClick = {
+                val d = state.fromDate
+                DatePickerDialog(
+                    context,
+                    { _, y, m, day ->
+                        vm.setDate(LocalDate.of(y, m + 1, day)); vm.refreshSoon()
+                    },
+                    d.year, d.monthValue - 1, d.dayOfMonth,
+                ).apply {
+                    datePicker.minDate = System.currentTimeMillis() - 24L * 3600 * 1000
+                }.show()
+            },
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        ) {
+            Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Icon(Icons.Default.DateRange, null, Modifier.size(16.dp))
+                Text(state.fromDate.format(dateFmt),
+                    style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
+                    maxLines = 1)
+            }
         }
 
         listOf(7, 14, 30).forEach { days ->
-            FilterChip(
+            SmallChip(
                 selected = state.daysCount == days,
+                label = "${days} дн.",
+                icon = null,
                 onClick = { vm.setDaysCount(days); vm.refreshSoon() },
-                label = { Text("${days} дн.", maxLines = 1) },
-                shape = RoundedCornerShape(50),
             )
         }
         // v2.18: кнопка точечного применения — если отложенный запрос по какой-то
         // причине не устроил, цены можно обновить сразу одним тапом.
-        FilledTonalButton(
+        Surface(
             onClick = { vm.refresh() },
             shape = RoundedCornerShape(50),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+            color = MaterialTheme.colorScheme.secondary,
+            contentColor = MaterialTheme.colorScheme.onSecondary,
         ) {
-            Icon(Icons.Default.Search, null, Modifier.size(16.dp))
-            Spacer(Modifier.width(4.dp))
-            Text(if (state.isLoading) "Ищем…" else "Цены",
-                style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(Icons.Default.Search, null, Modifier.size(15.dp))
+                Text(if (state.isLoading) "Ищем…" else "Цены",
+                    style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            }
         }
     }
 }
@@ -1288,33 +1338,49 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel, onApply: () ->
     var monthPickerOpen by rememberSaveable { mutableStateOf(false) }
 
     Column(Modifier.fillMaxWidth()) {
-        // v2.18: компактный навигатор месяца в одну строку: ‹ Октябрь 2026 › 📅
+        // v2.19: навигатор месяца — ровно на всю ширину секции (без лишнего
+        // горизонтального отступного слоя), стрелки уменьшены, текст по центру.
         Surface(
             shape = RoundedCornerShape(14.dp),
             color = MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.padding(vertical = 2.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 2.dp),
         ) {
             Row(
-                Modifier.padding(horizontal = 2.dp),
+                Modifier.padding(horizontal = 0.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = { vm.shiftMonth(-1); vm.refreshSoon() }) {
+                IconButton(
+                    onClick = { vm.shiftMonth(-1); vm.refreshSoon() },
+                    modifier = Modifier.size(38.dp),
+                ) {
                     Icon(Icons.Default.ChevronRight, "Предыдущий месяц",
-                        modifier = Modifier.rotate(180f))
+                        modifier = Modifier.rotate(180f).size(20.dp))
                 }
                 Text(
                     state.month.atDay(1).format(monthFmt)
                         .replaceFirstChar { it.uppercase(RU) },
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = { monthPickerOpen = true }) {
+                IconButton(
+                    onClick = { monthPickerOpen = true },
+                    modifier = Modifier.size(38.dp),
+                ) {
                     Icon(Icons.Default.CalendarMonth, "Выбрать месяц",
-                        modifier = Modifier.size(20.dp))
+                        modifier = Modifier.size(19.dp))
                 }
-                IconButton(onClick = { vm.shiftMonth(+1); vm.refreshSoon() }) {
-                    Icon(Icons.Default.ChevronRight, "Следующий месяц")
+                IconButton(
+                    onClick = { vm.shiftMonth(+1); vm.refreshSoon() },
+                    modifier = Modifier.size(38.dp),
+                ) {
+                    Icon(Icons.Default.ChevronRight, "Следующий месяц",
+                        modifier = Modifier.size(20.dp))
                 }
             }
         }
@@ -1360,35 +1426,40 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel, onApply: () ->
         // и отдельного переключателя обратных билетов на всю ширину.
         CompactRoundTripRow(state, vm)
 
-        // v2.18: сводка выбранных дат + кнопка «Показать цены» — точечная
-        // перезагрузка вместо сетевых запросов на каждый тап по дням недели.
+        // v2.19: сводка дат по центру (maxLines=1 + ellipsis — без «лестницы» в
+        // две строки), кнопка «Показать цены» под ней по центру.
         val dates = state.weekendDepartureDates()
+        if (dates.isNotEmpty()) {
+            val fmt = remember { DateTimeFormatter.ofPattern("EEE d MMM", RU) }
+            Text(
+                text = dates.joinToString(", ") {
+                    it.format(fmt).replaceFirstChar { c -> c.uppercase(RU) }
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
+            )
+        }
         Row(
             Modifier.fillMaxWidth().padding(top = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
         ) {
-            Column(Modifier.weight(1f)) {
-                if (dates.isNotEmpty()) {
-                    val fmt = remember { DateTimeFormatter.ofPattern("EEE d MMM", RU) }
-                    Text(
-                        text = dates.joinToString(", ") {
-                            it.format(fmt).replaceFirstChar { c -> c.uppercase(RU) }
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                    )
-                }
-            }
-            FilledTonalButton(
+            Surface(
                 onClick = onApply,
                 shape = RoundedCornerShape(50),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                color = MaterialTheme.colorScheme.secondary,
+                contentColor = MaterialTheme.colorScheme.onSecondary,
             ) {
-                Icon(Icons.Default.Search, null, Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(if (state.isLoading) "Ищем…" else "Показать цены",
-                    style = MaterialTheme.typography.labelMedium)
+                Row(Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Icon(Icons.Default.Search, null, Modifier.size(15.dp))
+                    Text(if (state.isLoading) "Ищем…" else "Показать цены",
+                        style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                }
             }
         }
     }
@@ -1397,59 +1468,64 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel, onApply: () ->
 /** v2.18: компактная строка дней вылета/возврата с мини-переключателем возврата. */
 @Composable
 private fun CompactRoundTripRow(state: UiState, vm: PobedaViewModel) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            "✈ Туда:",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Bold,
-        )
-        val shortDays = listOf(
-            DayOfWeek.MONDAY to "Пн", DayOfWeek.TUESDAY to "Вт",
-            DayOfWeek.WEDNESDAY to "Ср", DayOfWeek.THURSDAY to "Чт",
-            DayOfWeek.FRIDAY to "Пт", DayOfWeek.SATURDAY to "Сб",
-            DayOfWeek.SUNDAY to "Вс",
-        )
-        shortDays.forEach { (day, short) ->
-            MiniDayChip(short, day in state.outboundDays, MaterialTheme.colorScheme.primary) {
-                vm.toggleWeekendDay(day); vm.refreshSoon()
-            }
-        }
-
-        // Мини-переключатель обратных билетов — круглая кнопка ↕
-        val retColor = if (state.returnEnabled) MaterialTheme.colorScheme.tertiary
-                       else MaterialTheme.colorScheme.onSurfaceVariant
-        Surface(
-            onClick = { vm.toggleReturnEnabled(!state.returnEnabled); vm.refreshSoon() },
-            shape = CircleShape,
-            color = if (state.returnEnabled) MaterialTheme.colorScheme.tertiaryContainer
-                    else MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = retColor,
+    // v2.19: без горизонтального скролла — 7 круглых чипов + переключатель ↕
+    // гарантированно помещаются в ширину карточки; при включённом «Обратно»
+    // строки идут одна под другой, каждая центрирована.
+    val shortDays = listOf(
+        DayOfWeek.MONDAY to "Пн", DayOfWeek.TUESDAY to "Вт",
+        DayOfWeek.WEDNESDAY to "Ср", DayOfWeek.THURSDAY to "Чт",
+        DayOfWeek.FRIDAY to "Пт", DayOfWeek.SATURDAY to "Сб",
+        DayOfWeek.SUNDAY to "Вс",
+    )
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                Icons.Default.SwapVert,
-                contentDescription = if (state.returnEnabled) "Выключить обратные" else "Включить обратные",
-                modifier = Modifier.padding(6.dp).size(18.dp),
-            )
-        }
-
-        if (state.returnEnabled) {
             Text(
-                "↵ Обратно:",
+                "✈ Туда:",
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.tertiary,
+                color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
             )
             shortDays.forEach { (day, short) ->
-                MiniDayChip(short, day in state.returnDays, MaterialTheme.colorScheme.tertiary) {
-                    vm.toggleReturnDay(day); vm.refreshSoon()
+                MiniDayChip(short, day in state.outboundDays, MaterialTheme.colorScheme.primary) {
+                    vm.toggleWeekendDay(day); vm.refreshSoon()
+                }
+            }
+            // Мини-переключатель обратных билетов — круглая кнопка ↕
+            val retColor = if (state.returnEnabled) MaterialTheme.colorScheme.tertiary
+                           else MaterialTheme.colorScheme.onSurfaceVariant
+            Surface(
+                onClick = { vm.toggleReturnEnabled(!state.returnEnabled); vm.refreshSoon() },
+                shape = CircleShape,
+                color = if (state.returnEnabled) MaterialTheme.colorScheme.tertiaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = retColor,
+            ) {
+                Icon(
+                    Icons.Default.SwapVert,
+                    contentDescription = if (state.returnEnabled) "Выключить обратные" else "Включить обратные",
+                    modifier = Modifier.padding(5.dp).size(16.dp),
+                )
+            }
+        }
+        if (state.returnEnabled) {
+            Spacer(Modifier.height(4.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "↵ Обратно:",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    fontWeight = FontWeight.Bold,
+                )
+                shortDays.forEach { (day, short) ->
+                    MiniDayChip(short, day in state.returnDays, MaterialTheme.colorScheme.tertiary) {
+                        vm.toggleReturnDay(day); vm.refreshSoon()
+                    }
                 }
             }
         }
@@ -1474,9 +1550,12 @@ private fun MiniDayChip(label: String, selected: Boolean, accent: Color, onClick
     ) {
         Text(
             label,
-            Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+            // v2.19: фиксированная ширина — все кружки одинаковые, ряд не «прыгает».
+            Modifier.width(30.dp).padding(vertical = 5.dp),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
         )
     }
 }
