@@ -346,6 +346,9 @@ private fun RateAndUpdatedChip(state: UiState) {
  */
 @Composable
 private fun FilterCard(state: UiState, vm: PobedaViewModel) {
+    // v2.22: вся карточка сворачивается в одну аккуратную строку-шапку
+    // (как было до v2.18 — тап по шапке или стрелке разворачивает обратно).
+    var open by rememberSaveable("filterCardOpen") { mutableStateOf(true) }
     // v2.9: ограничиваем высоту карточки ~65% экрана. Внутри — verticalScroll.
     val maxHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.65f
 
@@ -359,41 +362,88 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Column(
+        // ── Шапка: всегда видима, тап сворачивает/разворачивает ──
+        Row(
             Modifier
-                .verticalScroll(rememberScrollState())
-                // v2.20: единый внутренний отступ 10dp + центрирование колонок —
-                // элементы выровнены по одной сетке и не расползаются к краям.
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .fillMaxWidth()
+                .clickable { open = !open }
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            // ── «Где искать»: хабы + куда (одна секция) ────────────────
-            SectionHeader("Где искать", filterWhereSummary(state))
-            HubChips(state, vm)
-            Spacer(Modifier.height(6.dp))
-            DestinationPicker(state, vm)
+            Icon(
+                Icons.Default.Tune, null,
+                modifier = Modifier.size(17.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Параметры поиска",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                filterWhereSummary(state) + " · " +
+                    when (state.mode) {
+                        SearchMode.ALL_DAYS -> "${state.daysCount} дн."
+                        SearchMode.WEEKENDS -> state.month.atDay(1)
+                            .format(DateTimeFormatter.ofPattern("LLL", RU))
+                    },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                Icons.Default.ExpandMore,
+                contentDescription = if (open) "Свернуть" else "Развернуть",
+                modifier = Modifier
+                    .size(20.dp)
+                    .rotate(if (open) 180f else 0f)
+                    .clickable { open = !open },
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
 
-            HorizontalDivider(Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        AnimatedVisibility(visible = open) {
+            Column(
+                Modifier
+                    .verticalScroll(rememberScrollState())
+                    // v2.20: единый внутренний отступ 10dp + центрирование колонок —
+                    // элементы выровнены по одной сетке и не расползаются к краям.
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // ── «Где искать»: хабы + куда (одна секция) ────────────────
+                SectionHeader("Где искать", filterWhereSummary(state))
+                HubChips(state, vm)
+                Spacer(Modifier.height(6.dp))
+                DestinationPicker(state, vm)
 
-            // ── «Когда»: режим + период ────────────────────────────────
-            SectionHeader("Когда", if (state.mode == SearchMode.ALL_DAYS)
-                "с ${state.fromDate.dayOfMonth}.${"%02d".format(state.fromDate.monthValue)} · ${state.daysCount} дн."
-            else state.month.atDay(1).format(DateTimeFormatter.ofPattern("MMMM yyyy", RU))
-                .replaceFirstChar { it.uppercase(RU) })
-            ModeToggle(state, vm)
-            Spacer(Modifier.height(5.dp))
-            if (state.mode == SearchMode.ALL_DAYS) {
-                AllDaysControls(state, vm)
-            } else {
-                WeekendsControls(state, vm) { vm.refresh() }
+                HorizontalDivider(Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+                // ── «Когда»: режим + период ────────────────────────────────
+                SectionHeader("Когда", if (state.mode == SearchMode.ALL_DAYS)
+                    "с ${state.fromDate.dayOfMonth}.${"%02d".format(state.fromDate.monthValue)} · ${state.daysCount} дн."
+                else state.month.atDay(1).format(DateTimeFormatter.ofPattern("MMMM yyyy", RU))
+                    .replaceFirstChar { it.uppercase(RU) })
+                ModeToggle(state, vm)
+                Spacer(Modifier.height(5.dp))
+                if (state.mode == SearchMode.ALL_DAYS) {
+                    AllDaysControls(state, vm)
+                } else {
+                    WeekendsControls(state, vm) { vm.refresh() }
+                }
+
+                HorizontalDivider(Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+                // ── «Список» (избранное / тип рейса / сортировка) ──────────
+                SectionHeader("Список", "фильтры и порядок")
+                ListTogglesRow(state, vm)
+                Spacer(Modifier.height(2.dp))
             }
-
-            HorizontalDivider(Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
-
-            // ── «Список» (избранное / тип рейса / сортировка) ──────────
-            SectionHeader("Список", "фильтры и порядок")
-            ListTogglesRow(state, vm)
-            Spacer(Modifier.height(2.dp))
         }
     }
 }
@@ -1556,8 +1606,11 @@ private fun CompactRoundTripRow(state: UiState, vm: PobedaViewModel) {
         val retOn = state.returnEnabled
         Surface(
             onClick = {
-                vm.toggleReturnEnabled(!retOn); vm.refreshSoon()
-                if (!retOn) retMenu = true
+                // v2.22: включили обратные — сразу открываем меню дней возврата;
+                // выключили — скрываем поле (AnimatedVisibility ниже).
+                val turningOn = !retOn
+                vm.toggleReturnEnabled(turningOn); vm.refreshSoon()
+                if (turningOn) retMenu = true
             },
             shape = CircleShape,
             color = if (retOn) MaterialTheme.colorScheme.tertiaryContainer
@@ -1572,61 +1625,56 @@ private fun CompactRoundTripRow(state: UiState, vm: PobedaViewModel) {
             )
         }
 
-        // ── «Обратно» ──
-        Box(Modifier.weight(1f)) {
-            OutlinedTextField(
-                value = "↵ " + when {
-                    state.returnDays.isEmpty() -> "не выбрано"
-                    state.returnDays.size == 7 -> "все дни"
-                    else -> shortDaysList.filter { it.first in state.returnDays }
-                        .joinToString(", ") { it.second }
-                },
-                onValueChange = {},
-                readOnly = true,
-                enabled = retOn,
-                singleLine = true,
-                label = { Text("Дни возврата", maxLines = 1) },
-                trailingIcon = {
-                    Icon(Icons.Default.ArrowDropDown, null,
-                        tint = MaterialTheme.colorScheme.tertiary)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (retOn) Modifier.clickable { retMenu = true } else Modifier),
-            )
-            DropdownMenu(expanded = retMenu && retOn, onDismissRequest = { retMenu = false }) {
-                shortDays.forEach { (day, short) ->
-                    val checked = day in state.returnDays
+        // ── «Обратно»: v2.22 — поле показывается ТОЛЬКО когда кнопка ↔ нажата.
+        // Тап по самой кнопке включает обратные и сразу открывает меню выбора
+        // дней возврата — неактивного «серого» поля больше нет. ──
+        AnimatedVisibility(visible = retOn) {
+            Box(Modifier.weight(1f)) {
+                OutlinedTextField(
+                    value = "↵ " + when {
+                        state.returnDays.isEmpty() -> "выберите дни"
+                        state.returnDays.size == 7 -> "все дни"
+                        else -> shortDaysList.filter { it.first in state.returnDays }
+                            .joinToString(", ") { it.second }
+                    },
+                    onValueChange = {},
+                    readOnly = true,
+                    singleLine = true,
+                    label = { Text("Дни возврата", maxLines = 1) },
+                    trailingIcon = {
+                        Icon(Icons.Default.ArrowDropDown, null,
+                            tint = MaterialTheme.colorScheme.tertiary)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { retMenu = true },
+                )
+                DropdownMenu(expanded = retMenu, onDismissRequest = { retMenu = false }) {
+                    shortDays.forEach { (day, short) ->
+                        val checked = day in state.returnDays
+                        DropdownMenuItem(
+                            text = { Text(short) },
+                            leadingIcon = {
+                                Checkbox(checked = checked, onCheckedChange = null)
+                            },
+                            onClick = { vm.toggleReturnDay(day); vm.refreshSoon() },
+                        )
+                    }
+                    HorizontalDivider()
                     DropdownMenuItem(
-                        text = { Text(short) },
-                        leadingIcon = { Checkbox(checked = checked, onCheckedChange = null) },
-                        onClick = { vm.toggleReturnDay(day); vm.refreshSoon() },
+                        text = { Text(if (state.returnDays.isNotEmpty()) "Сбросить" else "Выбрать все") },
+                        leadingIcon = { Icon(Icons.Default.SelectAll, null) },
+                        onClick = {
+                            if (state.returnDays.isNotEmpty()) {
+                                shortDays.forEach { (d, _) -> if (d in state.returnDays) vm.toggleReturnDay(d) }
+                            } else {
+                                shortDays.forEach { (d, _) -> if (d !in state.returnDays) vm.toggleReturnDay(d) }
+                            }
+                            vm.refreshSoon()
+                        },
                     )
                 }
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = { Text(if (state.returnDays.isNotEmpty()) "Сбросить" else "Выбрать все") },
-                    leadingIcon = { Icon(Icons.Default.SelectAll, null) },
-                    onClick = {
-                        if (state.returnDays.isNotEmpty()) {
-                            shortDays.forEach { (d, _) -> if (d in state.returnDays) vm.toggleReturnDay(d) }
-                        } else {
-                            shortDays.forEach { (d, _) -> if (d !in state.returnDays) vm.toggleReturnDay(d) }
-                        }
-                        vm.refreshSoon()
-                    },
-                )
             }
-        }
-
-        if (!state.returnEnabled) {
-            Text(
-                "Нажмите ↔, чтобы выбрать дни возврата",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                modifier = Modifier.width(96.dp),
-            )
         }
     }
 }
