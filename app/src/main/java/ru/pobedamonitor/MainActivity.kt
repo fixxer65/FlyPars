@@ -26,6 +26,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -237,16 +238,19 @@ fun MainScreen(
             Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                // v2.19: чуть меньше боковые поля — контент ближе к центру,
-                // длинным подписям хватает ширины, текст перестаёт обрезаться.
-                .padding(horizontal = 10.dp),
+                // v2.20: единая центрированная колонка (max 460dp) с меньшими
+                // полями — контент ближе к центру, длинные подписи не обрезаются.
+                .padding(horizontal = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(4.dp))
             RateAndUpdatedChip(state)
-            FilterCard(state = state, vm = vm)
+            // v2.20: все секции в одной центрированной колонке шириной до 460dp —
+            // на широких экранах текст не «расползается» по краям.
+            Box(Modifier.fillMaxWidth().widthIn(max = 460.dp)) { FilterCard(state = state, vm = vm) }
             Spacer(Modifier.height(8.dp))
             // v2.18: уведомления — отдельная складываемая карточка под параметрами.
-            NotificationsCard(state = state, vm = vm)
+            Box(Modifier.fillMaxWidth().widthIn(max = 460.dp)) { NotificationsCard(state = state, vm = vm) }
 
             val visible = state.visibleRoutes()
             when {
@@ -348,7 +352,7 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
             .fillMaxWidth()
             .heightIn(max = maxHeight)
             .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -356,9 +360,10 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
         Column(
             Modifier
                 .verticalScroll(rememberScrollState())
-                // v2.19: внутренний отступ карточки — единый для всех секций,
-                // элементы больше не «расползаются» к краям.
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                // v2.20: единый внутренний отступ 10dp + центрирование колонок —
+                // элементы выровнены по одной сетке и не расползаются к краям.
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // ── «Где искать»: хабы + куда (одна секция) ────────────────
             SectionHeader("Где искать", filterWhereSummary(state))
@@ -366,7 +371,7 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
             Spacer(Modifier.height(6.dp))
             DestinationPicker(state, vm)
 
-            HorizontalDivider(Modifier.padding(vertical = 7.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
             // ── «Когда»: режим + период ────────────────────────────────
             SectionHeader("Когда", if (state.mode == SearchMode.ALL_DAYS)
@@ -381,7 +386,7 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
                 WeekendsControls(state, vm) { vm.refresh() }
             }
 
-            HorizontalDivider(Modifier.padding(vertical = 7.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
             // ── «Список» (избранное / тип рейса / сортировка) ──────────
             SectionHeader("Список", "фильтры и порядок")
@@ -395,7 +400,7 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
 @Composable
 private fun SectionHeader(title: String, summary: String) {
     Row(
-        Modifier.padding(bottom = 6.dp),
+        Modifier.fillMaxWidth().padding(bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -433,7 +438,10 @@ private fun filterWhereSummary(state: UiState): String {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModeToggle(state: UiState, vm: PobedaViewModel) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         data class Opt(val mode: SearchMode, val label: String)
         listOf(
             Opt(SearchMode.ALL_DAYS, "📅 Все дни"),
@@ -468,14 +476,15 @@ private fun ModeToggle(state: UiState, vm: PobedaViewModel) {
 }
 
 /** Одна горизонтальная строка: ⭐ избранное, тип рейса, сортировка. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun ListTogglesRow(state: UiState, vm: PobedaViewModel) {
     // v2.19: чипы уменьшены до CompactChip/SmallChip — строка целиком помещается
     // на узких экранах без обрезки подписей по краям.
-    Row(
+    FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
     ) {
         SmallChip(
             selected = state.listFilter == ListFilter.FAVORITES,
@@ -529,7 +538,7 @@ private fun SmallChip(
                        else MaterialTheme.colorScheme.onSurfaceVariant,
     ) {
         Row(
-            Modifier.padding(start = if (icon != null) 8.dp else 11.dp, end = 11.dp, vertical = 7.dp),
+            Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -984,7 +993,7 @@ private fun NotificationsCard(state: UiState, vm: PobedaViewModel) {
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -1114,14 +1123,15 @@ private fun SortTabs(state: UiState, vm: PobedaViewModel) {
 }
 
 /** Чипы выбора хабов (Москва / Минск). */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun HubChips(state: UiState, vm: PobedaViewModel) {
     // v2.19: компактные чипы «Москва MOW» — без «·», уменьшенный шрифт; строка
     // с подписью «Откуда:» целиком помещается и центрируется.
-    Row(
+    FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
     ) {
         Text(
             "Откуда:",
@@ -1263,6 +1273,7 @@ private fun Modifier.clickableBox(onClick: () -> Unit): Modifier {
 }
 
 /** Обычный режим: дата начала + глубина периода. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
     val context = LocalContext.current
@@ -1271,9 +1282,9 @@ private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
     // v2.19: строка центрирована и компактна — кнопка даты без «хвоста» года,
     // чипы дней уменьшены, всё помещается на одном экране без горизонтального
     // скролла и обрезки по краям.
-    Row(
+    FlowRow(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
     ) {
         Surface(
@@ -1479,7 +1490,7 @@ private fun CompactRoundTripRow(state: UiState, vm: PobedaViewModel) {
     )
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -1513,7 +1524,7 @@ private fun CompactRoundTripRow(state: UiState, vm: PobedaViewModel) {
         if (state.returnEnabled) {
             Spacer(Modifier.height(4.dp))
             Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -1550,8 +1561,9 @@ private fun MiniDayChip(label: String, selected: Boolean, accent: Color, onClick
     ) {
         Text(
             label,
-            // v2.19: фиксированная ширина — все кружки одинаковые, ряд не «прыгает».
-            Modifier.width(30.dp).padding(vertical = 5.dp),
+            // v2.20: фиксированная ширина — все кружки одинаковые, строка гарантированно
+            // помещается на узких экранах и не упирается в края карточки.
+            Modifier.width(28.dp).padding(vertical = 4.dp),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             textAlign = TextAlign.Center,
