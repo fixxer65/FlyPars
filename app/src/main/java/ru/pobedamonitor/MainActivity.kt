@@ -1543,10 +1543,10 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel, onApply: () ->
 }
 
 /**
- * v2.21: выбор дней недели «Туда» и «Обратно» — два вертикальных списка
- * (выпадающих, как выбор направления), между ними по центру кнопка ↔ возврата.
- * На узких телефонах больше ничего не обрезается: горизонтальных лент из
- * 7 чипов + подписей здесь больше нет.
+ * v2.24: дни недели выходных — ВЕРТИКАЛЬНО: «Туда» сверху, широкая скруглённая
+ * кнопка «Туда + обратно» посередине, «Обратно» снизу (только когда режим
+ * включён). Поля — выпадающие списки во всю ширину колонки, на телефоне
+ * ничего не обрезается.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1559,26 +1559,24 @@ private fun CompactRoundTripRow(state: UiState, vm: PobedaViewModel) {
     )
     var outMenu by remember { mutableStateOf(false) }
     var retMenu by remember { mutableStateOf(false) }
+    val retOn = state.returnEnabled
 
-    val shortDaysList = shortDays
-
-    Row(
+    Column(
         Modifier.fillMaxWidth().padding(top = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // ── «Туда» ──
-        Box(Modifier.weight(1f)) {
+        // ── «Туда» — сверху, на всю ширину ──
+        Box(Modifier.fillMaxWidth()) {
             OutlinedTextField(
                 value = "✈ " + when {
                     state.outboundDays.isEmpty() -> "не выбрано"
                     state.outboundDays.size == 7 -> "все дни"
-                    else -> shortDaysList.filter { it.first in state.outboundDays }
+                    else -> shortDays.filter { it.first in state.outboundDays }
                         .joinToString(", ") { it.second }
                 },
                 onValueChange = {},
                 readOnly = true,
-                enabled = false,
                 singleLine = true,
                 label = { Text("Дни вылета", maxLines = 1) },
                 trailingIcon = {
@@ -1591,12 +1589,9 @@ private fun CompactRoundTripRow(state: UiState, vm: PobedaViewModel) {
             )
             DropdownMenu(expanded = outMenu, onDismissRequest = { outMenu = false }) {
                 shortDays.forEach { (day, short) ->
-                    val checked = day in state.outboundDays
                     DropdownMenuItem(
                         text = { Text(short) },
-                        leadingIcon = {
-                            Checkbox(checked = checked, onCheckedChange = null)
-                        },
+                        leadingIcon = { Checkbox(checked = day in state.outboundDays, onCheckedChange = null) },
                         onClick = { vm.toggleWeekendDay(day); vm.refreshSoon() },
                     )
                 }
@@ -1616,39 +1611,44 @@ private fun CompactRoundTripRow(state: UiState, vm: PobedaViewModel) {
             }
         }
 
-        // ── Кнопка возврата — ровно посередине между списками ──
-        val retOn = state.returnEnabled
+        // ── Широкая скруглённая кнопка-переключатель посередине ──
         Surface(
             onClick = {
                 // v2.22: включили обратные — сразу открываем меню дней возврата;
-                // выключили — скрываем поле (AnimatedVisibility ниже).
+                // выключили — поле скрывается (AnimatedVisibility ниже).
                 val turningOn = !retOn
                 vm.toggleReturnEnabled(turningOn); vm.refreshSoon()
                 if (turningOn) retMenu = true
             },
-            shape = CircleShape,
+            shape = RoundedCornerShape(26.dp),
             color = if (retOn) MaterialTheme.colorScheme.tertiaryContainer
                     else MaterialTheme.colorScheme.surfaceVariant,
             contentColor = if (retOn) MaterialTheme.colorScheme.onTertiaryContainer
                            else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(0.8f),
         ) {
-            Icon(
-                Icons.Default.SwapVert,
-                contentDescription = if (retOn) "Выключить обратные" else "Включить обратные",
-                modifier = Modifier.padding(8.dp).size(20.dp),
-            )
+            Row(
+                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.SwapVert, null, modifier = Modifier.size(18.dp))
+                Text(
+                    if (retOn) "Туда + обратно: вкл" else "Туда + обратно: выкл",
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                )
+            }
         }
 
-        // ── «Обратно»: v2.22 — поле показывается ТОЛЬКО когда кнопка ↔ нажата.
-        // Тап по самой кнопке включает обратные и сразу открывает меню выбора
-        // дней возврата — неактивного «серого» поля больше нет. ──
+        // ── «Обратно»: v2.22 — поле показывается ТОЛЬКО когда кнопка нажата ──
         AnimatedVisibility(visible = retOn) {
-            Box(Modifier.weight(1f)) {
+            Box(Modifier.fillMaxWidth()) {
                 OutlinedTextField(
                     value = "↵ " + when {
                         state.returnDays.isEmpty() -> "выберите дни"
                         state.returnDays.size == 7 -> "все дни"
-                        else -> shortDaysList.filter { it.first in state.returnDays }
+                        else -> shortDays.filter { it.first in state.returnDays }
                             .joinToString(", ") { it.second }
                     },
                     onValueChange = {},
@@ -1665,12 +1665,9 @@ private fun CompactRoundTripRow(state: UiState, vm: PobedaViewModel) {
                 )
                 DropdownMenu(expanded = retMenu, onDismissRequest = { retMenu = false }) {
                     shortDays.forEach { (day, short) ->
-                        val checked = day in state.returnDays
                         DropdownMenuItem(
                             text = { Text(short) },
-                            leadingIcon = {
-                                Checkbox(checked = checked, onCheckedChange = null)
-                            },
+                            leadingIcon = { Checkbox(checked = day in state.returnDays, onCheckedChange = null) },
                             onClick = { vm.toggleReturnDay(day); vm.refreshSoon() },
                         )
                     }
