@@ -51,6 +51,8 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -1476,99 +1478,156 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel, onApply: () ->
     }
 }
 
-/** v2.18: компактная строка дней вылета/возврата с мини-переключателем возврата. */
+/**
+ * v2.21: выбор дней недели «Туда» и «Обратно» — два вертикальных списка
+ * (выпадающих, как выбор направления), между ними по центру кнопка ↔ возврата.
+ * На узких телефонах больше ничего не обрезается: горизонтальных лент из
+ * 7 чипов + подписей здесь больше нет.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CompactRoundTripRow(state: UiState, vm: PobedaViewModel) {
-    // v2.19: без горизонтального скролла — 7 круглых чипов + переключатель ↕
-    // гарантированно помещаются в ширину карточки; при включённом «Обратно»
-    // строки идут одна под другой, каждая центрирована.
     val shortDays = listOf(
         DayOfWeek.MONDAY to "Пн", DayOfWeek.TUESDAY to "Вт",
         DayOfWeek.WEDNESDAY to "Ср", DayOfWeek.THURSDAY to "Чт",
         DayOfWeek.FRIDAY to "Пт", DayOfWeek.SATURDAY to "Сб",
         DayOfWeek.SUNDAY to "Вс",
     )
-    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "✈ Туда:",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
-            )
-            shortDays.forEach { (day, short) ->
-                MiniDayChip(short, day in state.outboundDays, MaterialTheme.colorScheme.primary) {
-                    vm.toggleWeekendDay(day); vm.refreshSoon()
-                }
-            }
-            // Мини-переключатель обратных билетов — круглая кнопка ↕
-            val retColor = if (state.returnEnabled) MaterialTheme.colorScheme.tertiary
-                           else MaterialTheme.colorScheme.onSurfaceVariant
-            Surface(
-                onClick = { vm.toggleReturnEnabled(!state.returnEnabled); vm.refreshSoon() },
-                shape = CircleShape,
-                color = if (state.returnEnabled) MaterialTheme.colorScheme.tertiaryContainer
-                        else MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = retColor,
-            ) {
-                Icon(
-                    Icons.Default.SwapVert,
-                    contentDescription = if (state.returnEnabled) "Выключить обратные" else "Включить обратные",
-                    modifier = Modifier.padding(5.dp).size(16.dp),
-                )
-            }
-        }
-        if (state.returnEnabled) {
-            Spacer(Modifier.height(4.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "↵ Обратно:",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.tertiary,
-                    fontWeight = FontWeight.Bold,
-                )
-                shortDays.forEach { (day, short) ->
-                    MiniDayChip(short, day in state.returnDays, MaterialTheme.colorScheme.tertiary) {
-                        vm.toggleReturnDay(day); vm.refreshSoon()
-                    }
-                }
-            }
-        }
-    }
-}
+    var outMenu by remember { mutableStateOf(false) }
+    var retMenu by remember { mutableStateOf(false) }
 
-/** Круглый мини-чип дня недели (компактная версия DayRow-чипа). */
-@Composable
-private fun MiniDayChip(label: String, selected: Boolean, accent: Color, onClick: () -> Unit) {
-    val chipColor by animateColorAsState(
-        targetValue = if (selected) accent.copy(alpha = 0.18f)
-                      else MaterialTheme.colorScheme.surface,
-        label = "miniday-$label",
-    )
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = chipColor,
-        contentColor = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
-        border = if (selected) null else androidx.compose.foundation.BorderStroke(
-            1.dp, MaterialTheme.colorScheme.outlineVariant),
+    val shortDaysList = shortDays
+
+    Row(
+        Modifier.fillMaxWidth().padding(top = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            label,
-            // v2.20: фиксированная ширина — все кружки одинаковые, строка гарантированно
-            // помещается на узких экранах и не упирается в края карточки.
-            Modifier.width(28.dp).padding(vertical = 4.dp),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-        )
+        // ── «Туда» ──
+        Box(Modifier.weight(1f)) {
+            OutlinedTextField(
+                value = "✈ " + when {
+                    state.outboundDays.isEmpty() -> "не выбрано"
+                    state.outboundDays.size == 7 -> "все дни"
+                    else -> shortDaysList.filter { it.first in state.outboundDays }
+                        .joinToString(", ") { it.second }
+                },
+                onValueChange = {},
+                readOnly = true,
+                enabled = false,
+                singleLine = true,
+                label = { Text("Дни вылета", maxLines = 1) },
+                trailingIcon = {
+                    Icon(Icons.Default.ArrowDropDown, null,
+                        tint = MaterialTheme.colorScheme.primary)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { outMenu = true },
+            )
+            DropdownMenu(expanded = outMenu, onDismissRequest = { outMenu = false }) {
+                shortDays.forEach { (day, short) ->
+                    val checked = day in state.outboundDays
+                    DropdownMenuItem(
+                        text = { Text(short) },
+                        leadingIcon = {
+                            Checkbox(checked = checked, onCheckedChange = null)
+                        },
+                        onClick = { vm.toggleWeekendDay(day); vm.refreshSoon() },
+                    )
+                }
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text(if (state.outboundDays.isNotEmpty()) "Сбросить" else "Выбрать все") },
+                    leadingIcon = { Icon(Icons.Default.SelectAll, null) },
+                    onClick = {
+                        if (state.outboundDays.isNotEmpty()) {
+                            shortDays.forEach { (d, _) -> if (d in state.outboundDays) vm.toggleWeekendDay(d) }
+                        } else {
+                            shortDays.forEach { (d, _) -> if (d !in state.outboundDays) vm.toggleWeekendDay(d) }
+                        }
+                        vm.refreshSoon()
+                    },
+                )
+            }
+        }
+
+        // ── Кнопка возврата — ровно посередине между списками ──
+        val retOn = state.returnEnabled
+        Surface(
+            onClick = {
+                vm.toggleReturnEnabled(!retOn); vm.refreshSoon()
+                if (!retOn) retMenu = true
+            },
+            shape = CircleShape,
+            color = if (retOn) MaterialTheme.colorScheme.tertiaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = if (retOn) MaterialTheme.colorScheme.onTertiaryContainer
+                           else MaterialTheme.colorScheme.onSurfaceVariant,
+        ) {
+            Icon(
+                Icons.Default.SwapVert,
+                contentDescription = if (retOn) "Выключить обратные" else "Включить обратные",
+                modifier = Modifier.padding(8.dp).size(20.dp),
+            )
+        }
+
+        // ── «Обратно» ──
+        Box(Modifier.weight(1f)) {
+            OutlinedTextField(
+                value = "↵ " + when {
+                    state.returnDays.isEmpty() -> "не выбрано"
+                    state.returnDays.size == 7 -> "все дни"
+                    else -> shortDaysList.filter { it.first in state.returnDays }
+                        .joinToString(", ") { it.second }
+                },
+                onValueChange = {},
+                readOnly = true,
+                enabled = retOn,
+                singleLine = true,
+                label = { Text("Дни возврата", maxLines = 1) },
+                trailingIcon = {
+                    Icon(Icons.Default.ArrowDropDown, null,
+                        tint = MaterialTheme.colorScheme.tertiary)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (retOn) Modifier.clickable { retMenu = true } else Modifier),
+            )
+            DropdownMenu(expanded = retMenu && retOn, onDismissRequest = { retMenu = false }) {
+                shortDays.forEach { (day, short) ->
+                    val checked = day in state.returnDays
+                    DropdownMenuItem(
+                        text = { Text(short) },
+                        leadingIcon = { Checkbox(checked = checked, onCheckedChange = null) },
+                        onClick = { vm.toggleReturnDay(day); vm.refreshSoon() },
+                    )
+                }
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text(if (state.returnDays.isNotEmpty()) "Сбросить" else "Выбрать все") },
+                    leadingIcon = { Icon(Icons.Default.SelectAll, null) },
+                    onClick = {
+                        if (state.returnDays.isNotEmpty()) {
+                            shortDays.forEach { (d, _) -> if (d in state.returnDays) vm.toggleReturnDay(d) }
+                        } else {
+                            shortDays.forEach { (d, _) -> if (d !in state.returnDays) vm.toggleReturnDay(d) }
+                        }
+                        vm.refreshSoon()
+                    },
+                )
+            }
+        }
+
+        if (!state.returnEnabled) {
+            Text(
+                "Нажмите ↔, чтобы выбрать дни возврата",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                modifier = Modifier.width(96.dp),
+            )
+        }
     }
 }
 
