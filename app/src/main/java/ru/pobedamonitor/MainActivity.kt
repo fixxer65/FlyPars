@@ -97,6 +97,26 @@ import kotlin.math.roundToInt
 
 private val RU = Locale("ru")
 
+/** v2.23: русские названия месяцев в именительном падеже («Ноябрь 2026», а не «ноября»). */
+private val MONTHS_NOMINATIVE = listOf(
+    "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+    "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+)
+
+/** Короткий месяц для строк «Пт 9 окт» (род. падеж здесь корректен в составе даты). */
+private fun ruMonthShort(m: java.time.Month): String = when (m) {
+    java.time.Month.JANUARY -> "янв"; java.time.Month.FEBRUARY -> "фев"
+    java.time.Month.MARCH -> "мар"; java.time.Month.APRIL -> "апр"
+    java.time.Month.MAY -> "мая"; java.time.Month.JUNE -> "июн"
+    java.time.Month.JULY -> "июл"; java.time.Month.AUGUST -> "авг"
+    java.time.Month.SEPTEMBER -> "сен"; java.time.Month.OCTOBER -> "окт"
+    java.time.Month.NOVEMBER -> "ноя"; java.time.Month.DECEMBER -> "дек"
+}
+
+/** «Ноябрь 2026» — именительный падеж, единый для всех заголовков месяца. */
+private fun monthTitleNominative(ym: java.time.YearMonth): String =
+    "${MONTHS_NOMINATIVE[ym.monthValue - 1]} ${ym.year}"
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -427,8 +447,7 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
                 // ── «Когда»: режим + период ────────────────────────────────
                 SectionHeader("Когда", if (state.mode == SearchMode.ALL_DAYS)
                     "с ${state.fromDate.dayOfMonth}.${"%02d".format(state.fromDate.monthValue)} · ${state.daysCount} дн."
-                else state.month.atDay(1).format(DateTimeFormatter.ofPattern("MMMM yyyy", RU))
-                    .replaceFirstChar { it.uppercase(RU) })
+                else monthTitleNominative(state.month))
                 ModeToggle(state, vm)
                 Spacer(Modifier.height(5.dp))
                 if (state.mode == SearchMode.ALL_DAYS) {
@@ -699,16 +718,15 @@ private fun CompactChipRow(
                 shape = RoundedCornerShape(50),
             )
         } else {
-            val monthFmt = remember { DateTimeFormatter.ofPattern("LLLL yyyy", RU) }
             AssistChip(
                 onClick = { setExpanded(true) },
                 label = {
                     Text(
-                        state.month.atDay(1).format(monthFmt).replaceFirstChar { it.uppercase(RU) },
+                        // v2.23: именительный падеж («Ноябрь 2026», а не «ноября»).
+                        monthTitleNominative(state.month),
                         maxLines = 1,
                     )
                 },
-                leadingIcon = { Icon(Icons.Default.CalendarMonth, null, modifier = Modifier.size(18.dp)) },
                 shape = RoundedCornerShape(50),
             )
         }
@@ -1001,7 +1019,7 @@ private fun filterSummary(state: UiState): String {
         append(dest)
         if (state.mode == SearchMode.WEEKENDS) {
             append(" · ")
-            append(state.month.atDay(1).format(DateTimeFormatter.ofPattern("MMMM yyyy", RU)))
+            append(monthTitleNominative(state.month))
         }
     }
 }
@@ -1178,18 +1196,20 @@ private fun SortTabs(state: UiState, vm: PobedaViewModel) {
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun HubChips(state: UiState, vm: PobedaViewModel) {
-    // v2.19: компактные чипы «Москва MOW» — без «·», уменьшенный шрифт; строка
-    // с подписью «Откуда:» целиком помещается и центрируется.
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
-    ) {
+    // v2.23: подпись «Откуда:» — отдельной строкой сверху над чипами (в v2.22 она
+    // стояла в одном ряду с чипами и визуально «съезжала» вверх относительно них).
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             "Откуда:",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 4.dp),
         )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+        ) {
         PobedaRepository.HUBS.forEach { hub ->
             val selected = hub.iata in state.hubsSelected
             SmallChip(
@@ -1198,6 +1218,7 @@ private fun HubChips(state: UiState, vm: PobedaViewModel) {
                 icon = null,
                 onClick = { vm.toggleHub(hub.iata); vm.refreshSoon() },
             )
+        }
         }
     }
 }
@@ -1397,12 +1418,12 @@ private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WeekendsControls(state: UiState, vm: PobedaViewModel, onApply: () -> Unit) {
-    val monthFmt = remember { DateTimeFormatter.ofPattern("MMMM yyyy", RU) }
+    // v2.23: выбор месяца — вертикальный прокручиваемый список по тапу на название;
+    // иконка-календарь справа убрана (была бессмысленной), вместо неё ▾ у текста.
     var monthPickerOpen by rememberSaveable { mutableStateOf(false) }
 
     Column(Modifier.fillMaxWidth()) {
-        // v2.19: навигатор месяца — ровно на всю ширину секции (без лишнего
-        // горизонтального отступного слоя), стрелки уменьшены, текст по центру.
+        // Навигатор месяца: ◀ «Ноябрь 2026 ▾» ▶ — имена в именительном падеже.
         Surface(
             shape = RoundedCornerShape(14.dp),
             color = MaterialTheme.colorScheme.surfaceVariant,
@@ -1421,22 +1442,23 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel, onApply: () ->
                     Icon(Icons.Default.ChevronRight, "Предыдущий месяц",
                         modifier = Modifier.rotate(180f).size(20.dp))
                 }
-                Text(
-                    state.month.atDay(1).format(monthFmt)
-                        .replaceFirstChar { it.uppercase(RU) },
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(
-                    onClick = { monthPickerOpen = true },
-                    modifier = Modifier.size(38.dp),
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .clickable { monthPickerOpen = true },
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Default.CalendarMonth, "Выбрать месяц",
-                        modifier = Modifier.size(19.dp))
+                    Text(
+                        monthTitleNominative(state.month),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                    Icon(Icons.Default.ExpandMore, "Выбрать месяц из списка",
+                        modifier = Modifier.size(18.dp))
                 }
                 IconButton(
                     onClick = { vm.shiftMonth(+1); vm.refreshSoon() },
@@ -1448,40 +1470,32 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel, onApply: () ->
             }
         }
 
-        // Нормальный диалог выбора месяца (Compose DatePicker: год + сетка месяцев)
+        // Всплывающий список месяцев (прокрутка по вертикали, как выбор направления)
         if (monthPickerOpen) {
-            val initMillis = remember(state.month) {
-                state.month.atDay(1).atStartOfDay(java.time.ZoneOffset.UTC)
-                    .toInstant().toEpochMilli()
+            val months = remember(state.month) {
+                (0L until 24L).map { state.month.plusMonths(it - 6L) }
             }
-            val pickerState = rememberDatePickerState(initialSelectedDateMillis = initMillis)
-            DatePickerDialog(
+            DropdownMenu(
+                expanded = true,
                 onDismissRequest = { monthPickerOpen = false },
-                confirmButton = {
-                    TextButton(onClick = {
-                        pickerState.selectedDateMillis?.let { millis ->
-                            val d = java.time.Instant.ofEpochMilli(millis)
-                                .atZone(java.time.ZoneOffset.UTC).toLocalDate()
-                            vm.setMonth(java.time.YearMonth.of(d.year, d.monthValue)); onApply()
-                        }
-                        monthPickerOpen = false
-                    }) { Text("ОК") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { monthPickerOpen = false }) { Text("Отмена") }
-                },
             ) {
-                DatePicker(
-                    state = pickerState,
-                    showModeToggle = true,
-                    title = {
-                        Text(
-                            "Месяц поиска",
-                            Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                    },
-                )
+                months.forEach { ym ->
+                    val cur = ym == state.month
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                monthTitleNominative(ym),
+                                fontWeight = if (cur) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        },
+                        trailingIcon = {
+                            if (cur) Icon(Icons.Default.Check, null)
+                        },
+                        onClick = {
+                            vm.setMonth(ym); onApply(); monthPickerOpen = false
+                        },
+                    )
+                }
             }
         }
 
