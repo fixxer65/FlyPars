@@ -74,6 +74,12 @@ class PobedaRepository {
          * время вылета (например «1:30» для Минск→СПб при вылете в 19:40).
          */
         val depTimeVerified: Boolean = false,
+        /**
+         * v2.17: номер рейса подтверждённого вылета из расписания (DP6859).
+         * Нужен, чтобы сопоставить «лучшую цену» из best-offers с конкретным
+         * рейсом в многорейсовом дне (Москва→Казань — 3 рейса в день).
+         */
+        val flightNo: String? = null,
     ) {
         /** Прямой рейс (одно плечо) или стыковочный (через другой город). */
         val isDirect: Boolean get() = legsCount <= 1
@@ -90,6 +96,8 @@ class PobedaRepository {
             // v2.16: время показываем ТОЛЬКО подтверждённое расписанием — иначе
             // это длительность полёта из best-offers, а не вылет.
             if (depTimeVerified) depTime?.let { sb.append(" · ").append(normalizeTime(it)) }
+            // v2.17: номер рейса — чтобы можно было сверить с сайтом Победы.
+            flightNo?.let { sb.append(" · ").append(it) }
             sb.append(if (isDirect) " · прямой" else " · стыковочный")
             return sb.toString()
         }
@@ -251,7 +259,7 @@ class PobedaRepository {
             val t = runCatching {
                 fetchTimetableDepartureTimeForLeg(from, to, e.depDate)
             }.getOrNull()
-            if (t != null) e.copy(depTime = t, depTimeVerified = true) else e
+            if (t != null) e.copy(depTime = t.first, depTimeVerified = true, flightNo = t.second) else e
         }
     }
 
@@ -303,8 +311,14 @@ class PobedaRepository {
 
     // ---- v2.14: расписание рейсов (реальное время вылета) -------------------
 
-    /** Кэш расписания: дата ISO -> ("откудаIATA-кудаIATA" -> HH:mm местного вылета). */
-    private val timetableCache = java.util.concurrent.ConcurrentHashMap<String, Map<String, String>>()
+    /**
+     * Кэш расписания: дата ISO -> ("откудаIATA-кудаIATA" -> список рейсов
+     * (номер, HH:mm местного вылета), отсортированный по времени).
+     * v2.17: в дне может быть НЕСКОЛЬКО рейсов по одной паре аэропортов
+     * (Москва→Казань — 3 рейса), поэтому храним все, а не последний.
+     */
+    private val timetableCache =
+        java.util.concurrent.ConcurrentHashMap<String, Map<String, List<Pair<String?, String>>>>()
 
     /**
      * Кэш часовых поясов аэропортов IATA->UTC offset (минуты), извлечённый из
@@ -323,7 +337,7 @@ class PobedaRepository {
      * v2.14: при пустом ответе пробуем соседние даты (API иногда сдвигает окно ±1 день),
      * но берём только рейсы на запрошенную [dateIso].
      */
-    suspend fun fetchTimetableDepartureTimes(dateIso: String): Map<String, String> =
+    suspend fun fetchTimetableDepartureTimes(dateIso: String): Map<String, List<Pair<String?, String>>> =
         withContext(Dispatchers.IO) {
             timetableCache.getOrPut(dateIso) {
                 // Дата вне окна расписания? Повторим попытку не раньше чем через 6 часов.
@@ -336,7 +350,7 @@ class PobedaRepository {
                 val finalMap = if (map.isNotEmpty()) map else {
                     // Соседние даты запроса + фильтр по нужной дате вылета.
                     val d = runCatching { LocalDate.parse(dateIso, isoFmt) }.getOrNull()
-                    var acc: Map<String, String> = emptyMap()
+                    var acc: Map<String, List<Pair<String?, String>>> = emptyMap()
                     if (d != null) {
                         for (nd in listOf(d.plusDays(1), d.minusDays(1))) {
                             val m = runCatching {
@@ -355,29 +369,35 @@ class PobedaRepository {
 
     /**
      * v2.16: время ВЫЛЕТА (местное, HH:mm) конкретного плеча from->to на дату
-     * dateIso из расписания; учитывает разницу часовых поясов аэропортов.
+     * dateIso из расписания. v2.17: если в дне несколько рейсов — берём САМЫЙ
+     * РАННИЙ подтверждённый (стабильно и правдоподобно для тарифа «без багажа»).
      */
     private suspend fun fetchTimetableDepartureTimeForLeg(
         from: String,
         to: String,
         dateIso: String,
-    ): String? {
+    ): Pair<String?, String?>? {
         val table = fetchTimetableDepartureTimes(dateIso)
         if (table.isEmpty()) return null
-        val raw = table["$from-$to"]
+        val legs = table["$from-$to"]
             ?: MOSCOW_AIRPORTS.firstNotNullOfOrNull { table["${it.iata}-$to"] }
             ?: return null
-        // raw — это stdLocal (местное время аэропорта вылета). Если у нас есть
-        // сохранённые смещения и они различаются, корректируем показание к
-        // местному времени точки вылета — фактически ничего менять не нужно,
-        // т.к. stdLocal уже местный пояс аэропорта отправления.
-        return raw
+        val best = legs.minByOrNull { it.second } ?: return null
+        return best.second to best.first   // (время, номер рейса)
     }
 
-    /** Разбор ответа flight-timetable; [onlyOnDate] (ISO) — брать только рейсы этого дня вылета. */
-    private fun parseTimetableFlights(json: org.json.JSONObject, onlyOnDate: String?): Map<String, String> {
+    /**
+     * Разбор ответа flight-timetable; [onlyOnDate] (ISO) — брать только рейсы
+     * этого дня вылета. v2.17: храним ВСЕ рейсы пары за день (пара аэропортов
+     * может иметь 2–4 рейса: Москва→Казань DP6843 06:55, DP6841 08:00,
+     * DP6859 15:55 — старая реализация оставляла последний попавшийся).
+     */
+    private fun parseTimetableFlights(
+        json: org.json.JSONObject,
+        onlyOnDate: String?,
+    ): Map<String, List<Pair<String?, String>>> {
         val flights = json.optJSONArray("flights") ?: return emptyMap()
-        val map = HashMap<String, String>(flights.length())
+        val map = HashMap<String, MutableList<Pair<String?, String>>>()
         for (i in 0 until flights.length()) {
             val f = flights.optJSONObject(i) ?: continue
             val dep = f.optJSONObject("departure") ?: continue
@@ -401,12 +421,11 @@ class PobedaRepository {
             val h = rawTime.substringBefore(':').toIntOrNull() ?: continue
             val m = rawTime.substringAfter(':').toIntOrNull() ?: continue
             if (h in 0..23 && m in 0..59) {
-                // Победа выполняет не более одного рейса в день по паре
-                // аэропортов — просто перезаписываем на всякий случай.
-                map["$from-$to"] = "%02d:%02d".format(h, m)
+                val no = f.optString("designator").takeIf { it.isNotBlank() }
+                map.getOrPut("$from-$to") { ArrayList() }.add(no to "%02d:%02d".format(h, m))
             }
         }
-        return map
+        return map.mapValues { (_, v) -> v.sortedBy { it.second } }
     }
 
     /** Разница stdLocal - std в минутах (с поправкой на сутки). */
@@ -424,6 +443,9 @@ class PobedaRepository {
      * (best-effort: даты дальше ~3 дней или отсутствующее направление остаются
      * без времени). Возвращает обновлённый список маршрутов.
      * v2.16: помечает depTimeVerified=true только для подтверждённых расписанием.
+     * v2.17: при нескольких рейсах в дне берётся САМЫЙ РАННИЙ (раньше
+     * map["from-to"] перезаписывался последним рейсом ответа — поэтому
+     * «Москва→Казань 15:55» вместо утреннего DP6843 06:55).
      */
     suspend fun enrichWithDepartureTimes(routes: List<RoutePrices>): List<RoutePrices> {
         val dates = routes.flatMap { r -> r.prices.keys }.distinct()
@@ -431,9 +453,10 @@ class PobedaRepository {
         val tables = dates.map { d -> d to fetchTimetableDepartureTimes(d) }.toMap()
         return routes.map { r ->
             val newPrices = r.prices.mapValues { (date, e) ->
-                val t = tables[date]?.get("${r.hubIata}-${r.arrivalIata}")
+                val legs = tables[date]?.get("${r.hubIata}-${r.arrivalIata}")
                     ?: tables[date]?.let { tbl -> firstNotNulls(tbl, r.arrivalIata) }
-                if (t != null) e.copy(depTime = t, depTimeVerified = true) else e
+                val best = legs?.minByOrNull { it.second }
+                if (best != null) e.copy(depTime = best.second, depTimeVerified = true, flightNo = best.first) else e
             }
             r.copy(prices = newPrices)
         }
@@ -446,7 +469,10 @@ class PobedaRepository {
         enrichWithDepartureTimes(routes)
 
     /** Для московского хаба MOW ищем рейс из любого аэропорта Внуково/Шереметьево/... */
-    private fun firstNotNulls(table: Map<String, String>, arrivalIata: String): String? =
+    private fun firstNotNulls(
+        table: Map<String, List<Pair<String?, String>>>,
+        arrivalIata: String,
+    ): List<Pair<String?, String>>? =
         MOSCOW_AIRPORTS.firstNotNullOfOrNull { table["${it.iata}-$arrivalIata"] }
 
     private fun parseDay(hub: String, arr: JSONArray): List<RoutePrices> {
