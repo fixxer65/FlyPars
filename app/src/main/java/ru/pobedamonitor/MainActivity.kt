@@ -926,6 +926,8 @@ private fun UiState.modeLabel(): String = when (mode) {
 @Composable
 private fun NotificationsCard(state: UiState, vm: PobedaViewModel) {
     var expanded by rememberSaveable { mutableStateOf(false) }
+    // v2.18: activity читаем в composable-контексте и передаём в не-composable функцию.
+    val activity = LocalContext.current as? MainActivity
 
     val summary = if (!state.notificationsEnabled) {
         "выключены · цена упала / 🎯 цель"
@@ -983,7 +985,6 @@ private fun NotificationsCard(state: UiState, vm: PobedaViewModel) {
                 Switch(
                     checked = state.notificationsEnabled,
                     onCheckedChange = { on ->
-                        val activity = LocalContext.current as? MainActivity
                         if (on) enableNotificationsWithPermission(activity, vm)
                         else vm.setNotificationsEnabled(false)
                     },
