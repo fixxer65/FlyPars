@@ -360,32 +360,27 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
             // хотя бы один хаб должен быть выбран
             s.copy(hubsSelected = if (sel.isEmpty()) setOf(iata) else sel)
         }
-        refresh()
+        // v2.18: не запускаем сетевую загрузку на каждый тап — см. DebouncedRefresh.
     }
 
     fun setMode(mode: SearchMode) {
         _state.update { it.copy(mode = mode) }
-        refresh()
     }
 
     fun setDate(date: LocalDate) {
         _state.update { it.copy(fromDate = date) }
-        refresh()
     }
 
     fun setDaysCount(count: Int) {
         _state.update { it.copy(daysCount = count.coerceIn(1, 60)) }
-        refresh()
     }
 
     fun setMonth(m: YearMonth) {
         _state.update { it.copy(month = m) }
-        refresh()
     }
 
     fun shiftMonth(delta: Long) {
         _state.update { it.copy(month = it.month.plusMonths(delta)) }
-        refresh()
     }
 
     fun toggleWeekendDay(day: DayOfWeek) {
@@ -394,12 +389,11 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
             if (!sel.remove(day)) sel.add(day)
             s.copy(outboundDays = if (sel.isEmpty()) setOf(day) else sel)
         }
-        refresh()
+        // v2.18: перезагрузка — отложенная (см. refreshSoon в UI), не на каждый тап.
     }
 
     fun toggleReturnEnabled(enabled: Boolean) {
         _state.update { it.copy(returnEnabled = enabled) }
-        refresh()
     }
 
     fun toggleReturnDay(day: DayOfWeek) {
@@ -408,7 +402,6 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
             if (!sel.remove(day)) sel.add(day)
             s.copy(returnDays = if (sel.isEmpty()) setOf(day) else sel)
         }
-        refresh()
     }
 
     /** Выбор аэропорта(ов) прилёта; пустое множество = все направления. */
@@ -418,13 +411,12 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
             if (!sel.remove(iata)) sel.add(iata)
             s.copy(destinationsSelected = sel)
         }
-        // v2.18: фильтр «Куда» влияет на список — обновляем сразу (без сети, из кэса).
-        refresh()
+        // v2.18: фильтр «Куда» влияет только на отображение списка — перерисовка
+        // мгновенная и БЕЗ сетевого запроса (данные уже в кэше состояния).
     }
 
     fun clearDestinations() {
         _state.update { it.copy(destinationsSelected = emptySet()) }
-        refresh()
     }
 
     /** Циклическое переключение сортировки: без → по возрастанию → по убыванию. */
@@ -553,7 +545,20 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
         ru.pobedamonitor.widget.PriceWidget.update(appContext)
     }
 
+    /** v2.18: отложенная перезагрузка — быстрые правки фильтров (дни недели, дата,
+     *  режимы) не запускают сетевой запрос на каждый тап; ждём 500 мс покоя. */
+    private var debounceJob: kotlinx.coroutines.Job? = null
+
+    fun refreshSoon() {
+        debounceJob?.cancel()
+        debounceJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(500)
+            refresh()
+        }
+    }
+
     fun refresh() {
+        debounceJob?.cancel()
         val s = _state.value
         if (s.isLoading) return
         fetchJob?.cancel()

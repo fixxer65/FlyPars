@@ -1,6 +1,6 @@
-(empty)node_modules/
+# Gradle
+.gradle/node_modules/
 .next/
 dist/
 build/
 *.log
-node_modules/

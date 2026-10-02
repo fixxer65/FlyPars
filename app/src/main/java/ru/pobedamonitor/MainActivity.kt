@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
@@ -346,21 +347,21 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
             .fillMaxWidth()
             .heightIn(max = maxHeight)
             .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
-        shape = RoundedCornerShape(26.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            // ── Строка 1: Откуда → Куда ────────────────────────────────
+            // ── «Где искать»: хабы + куда (одна секция) ────────────────
             SectionHeader("Где искать", filterWhereSummary(state))
             HubChips(state, vm)
             Spacer(Modifier.height(6.dp))
             DestinationPicker(state, vm)
 
-            HorizontalDivider(Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
-            // ── Строка 2: Когда (режим + период) ───────────────────────
+            // ── «Когда»: режим + период ────────────────────────────────
             SectionHeader("Когда", if (state.mode == SearchMode.ALL_DAYS)
                 "с ${state.fromDate.dayOfMonth}.${"%02d".format(state.fromDate.monthValue)} · ${state.daysCount} дн."
             else state.month.atDay(1).format(DateTimeFormatter.ofPattern("MMMM yyyy", RU))
@@ -370,15 +371,15 @@ private fun FilterCard(state: UiState, vm: PobedaViewModel) {
             if (state.mode == SearchMode.ALL_DAYS) {
                 AllDaysControls(state, vm)
             } else {
-                WeekendsControls(state, vm)
+                WeekendsControls(state, vm) { vm.refresh() }
             }
 
-            HorizontalDivider(Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
-            // ── Строка 3: Список (избранное / тип рейса / сортировка) ──
+            // ── «Список» (избранное / тип рейса / сортировка) ──────────
             SectionHeader("Список", "фильтры и порядок")
             ListTogglesRow(state, vm)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
         }
     }
 }
@@ -433,7 +434,7 @@ private fun ModeToggle(state: UiState, vm: PobedaViewModel) {
         ).forEach { opt ->
             val selected = state.mode == opt.mode
             Surface(
-                onClick = { vm.setMode(opt.mode) },
+                onClick = { vm.setMode(opt.mode); vm.refreshSoon() },
                 shape = RoundedCornerShape(50),
                 color = if (selected) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.surfaceVariant,
@@ -1072,30 +1073,30 @@ private fun SortTabs(state: UiState, vm: PobedaViewModel) {
 /** Чипы выбора хабов (Москва / Минск). */
 @Composable
 private fun HubChips(state: UiState, vm: PobedaViewModel) {
+    // v2.18: хабы — компактные чипы с IATA-кодом; подписи и отступы уменьшены.
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             "Откуда:",
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         PobedaRepository.HUBS.forEach { hub ->
             val selected = hub.iata in state.hubsSelected
             FilterChip(
                 selected = selected,
-                onClick = { vm.toggleHub(hub.iata) },
-                label = { Text(hub.name, fontWeight = FontWeight.Medium) },
-                leadingIcon = {
-                    if (selected) {
-                        Icon(Icons.Default.CheckCircle, null, Modifier.size(18.dp))
-                    } else {
-                        Icon(Icons.Outlined.AirplanemodeActive, null, Modifier.size(18.dp))
-                    }
+                onClick = { vm.toggleHub(hub.iata); vm.refreshSoon() },
+                label = {
+                    Text(
+                        "${hub.name} · ${hub.iata}",
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1,
+                    )
                 },
                 shape = RoundedCornerShape(50),
             )
@@ -1126,32 +1127,52 @@ private fun DestinationPicker(state: UiState, vm: PobedaViewModel) {
     }
 
     Box(Modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = when {
-                state.destinationsSelected.isEmpty() -> "все направления"
-                state.destinationsSelected.size == 1 -> {
-                    val code = state.destinationsSelected.first()
-                    "${Airports.nameOf(code)} ($code)"
-                }
-                else -> "выбрано ${state.destinationsSelected.size}"
-            },
-            onValueChange = {},
-            readOnly = true,
-            enabled = false, // сам клик перехватывается прозрачным Box'ом ниже
-            label = { Text("Куда") },
-            leadingIcon = { Icon(Icons.Default.Search, null) },
-            trailingIcon = {
+        // v2.18: компактная строка «Куда» вместо высокого текстового поля —
+        // та же функциональность (поиск + мультивыбор в DropdownMenu), меньше высоты.
+        Surface(
+            onClick = { expanded = true },
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.Search, null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Куда:", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    when {
+                        state.destinationsSelected.isEmpty() -> "все направления"
+                        state.destinationsSelected.size == 1 -> {
+                            val code = state.destinationsSelected.first()
+                            "${Airports.nameOf(code)} ($code)"
+                        }
+                        else -> "выбрано ${state.destinationsSelected.size}"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
                 if (state.destinationsSelected.isNotEmpty()) {
-                    TextButton(onClick = vm::clearDestinations) { Text("Сброс ✕") }
+                    TextButton(
+                        onClick = { vm.clearDestinations() },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    ) { Text("Сброс ✕", style = MaterialTheme.typography.labelMedium) }
                 } else {
                     Icon(Icons.Default.ExpandMore, null)
                 }
-            },
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickableBox { expanded = true },
-        )
+            }
+        }
 
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
@@ -1223,7 +1244,7 @@ private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
             DatePickerDialog(
                 context,
                 { _, y, m, day ->
-                    vm.setDate(LocalDate.of(y, m + 1, day))
+                    vm.setDate(LocalDate.of(y, m + 1, day)); vm.refreshSoon()
                 },
                 d.year, d.monthValue - 1, d.dayOfMonth,
             ).apply {
@@ -1238,10 +1259,22 @@ private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
         listOf(7, 14, 30).forEach { days ->
             FilterChip(
                 selected = state.daysCount == days,
-                onClick = { vm.setDaysCount(days) },
-                label = { Text("${days} дн.") },
+                onClick = { vm.setDaysCount(days); vm.refreshSoon() },
+                label = { Text("${days} дн.", maxLines = 1) },
                 shape = RoundedCornerShape(50),
             )
+        }
+        // v2.18: кнопка точечного применения — если отложенный запрос по какой-то
+        // причине не устроил, цены можно обновить сразу одним тапом.
+        FilledTonalButton(
+            onClick = { vm.refresh() },
+            shape = RoundedCornerShape(50),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+        ) {
+            Icon(Icons.Default.Search, null, Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(if (state.isLoading) "Ищем…" else "Цены",
+                style = MaterialTheme.typography.labelMedium, maxLines = 1)
         }
     }
 }
@@ -1249,46 +1282,38 @@ private fun AllDaysControls(state: UiState, vm: PobedaViewModel) {
 /** Режим «выходных»: месяц + дни вылета «туда» + опция обратных билетов. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
+private fun WeekendsControls(state: UiState, vm: PobedaViewModel, onApply: () -> Unit) {
     val monthFmt = remember { DateTimeFormatter.ofPattern("MMMM yyyy", RU) }
     var monthPickerOpen by rememberSaveable { mutableStateOf(false) }
 
     Column(Modifier.fillMaxWidth()) {
-        // Навигатор месяца: ‹ декабрь 2026 ›
+        // v2.18: компактный навигатор месяца в одну строку: ‹ Октябрь 2026 › 📅
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(14.dp),
             color = MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.padding(vertical = 4.dp),
+            modifier = Modifier.padding(vertical = 2.dp),
         ) {
             Row(
-                Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                Modifier.padding(horizontal = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = { vm.shiftMonth(-1) }) {
+                IconButton(onClick = { vm.shiftMonth(-1); vm.refreshSoon() }) {
                     Icon(Icons.Default.ChevronRight, "Предыдущий месяц",
                         modifier = Modifier.rotate(180f))
                 }
-                Column(
-                    Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        state.month.atDay(1).format(monthFmt)
-                            .replaceFirstChar { it.uppercase(RU) },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        "выберите месяц поиска",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = { vm.shiftMonth(+1) }) {
-                    Icon(Icons.Default.ChevronRight, "Следующий месяц")
-                }
+                Text(
+                    state.month.atDay(1).format(monthFmt)
+                        .replaceFirstChar { it.uppercase(RU) },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
                 IconButton(onClick = { monthPickerOpen = true }) {
-                    Icon(Icons.Default.CalendarMonth, "Выбрать месяц")
+                    Icon(Icons.Default.CalendarMonth, "Выбрать месяц",
+                        modifier = Modifier.size(20.dp))
+                }
+                IconButton(onClick = { vm.shiftMonth(+1); vm.refreshSoon() }) {
+                    Icon(Icons.Default.ChevronRight, "Следующий месяц")
                 }
             }
         }
@@ -1307,7 +1332,7 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
                         pickerState.selectedDateMillis?.let { millis ->
                             val d = java.time.Instant.ofEpochMilli(millis)
                                 .atZone(java.time.ZoneOffset.UTC).toLocalDate()
-                            vm.setMonth(java.time.YearMonth.of(d.year, d.monthValue))
+                            vm.setMonth(java.time.YearMonth.of(d.year, d.monthValue)); onApply()
                         }
                         monthPickerOpen = false
                     }) { Text("ОК") }
@@ -1330,66 +1355,127 @@ private fun WeekendsControls(state: UiState, vm: PobedaViewModel) {
             }
         }
 
-        DayRow(
-            caption = "✈ Туда:",
-            selected = state.outboundDays,
-            accent = MaterialTheme.colorScheme.primary,
-            onToggle = { day -> vm.toggleWeekendDay(day) },
-        )
+        // v2.18: одна компактная строка «Туда / ↕ / Обратно» вместо двух DayRow
+        // и отдельного переключателя обратных билетов на всю ширину.
+        CompactRoundTripRow(state, vm)
 
-        // Переключатель обратных билетов — красивый Switch вместо чекбокса
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = if (state.returnEnabled) MaterialTheme.colorScheme.tertiaryContainer
-                    else MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
+        // v2.18: сводка выбранных дат + кнопка «Показать цены» — точечная
+        // перезагрузка вместо сетевых запросов на каждый тап по дням недели.
+        val dates = state.weekendDepartureDates()
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Column(Modifier.weight(1f)) {
+                if (dates.isNotEmpty()) {
+                    val fmt = remember { DateTimeFormatter.ofPattern("EEE d MMM", RU) }
+                    Text(
+                        text = dates.joinToString(", ") {
+                            it.format(fmt).replaceFirstChar { c -> c.uppercase(RU) }
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                    )
+                }
+            }
+            FilledTonalButton(
+                onClick = onApply,
+                shape = RoundedCornerShape(50),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
             ) {
-                Icon(
-                    Icons.Default.SwapVert,
-                    null,
-                    tint = if (state.returnEnabled) MaterialTheme.colorScheme.onTertiaryContainer
-                           else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    "Обратные билеты",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (state.returnEnabled) MaterialTheme.colorScheme.onTertiaryContainer
-                            else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                Switch(
-                    checked = state.returnEnabled,
-                    onCheckedChange = { vm.toggleReturnEnabled(it) },
-                )
+                Icon(Icons.Default.Search, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(if (state.isLoading) "Ищем…" else "Показать цены",
+                    style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
+/** v2.18: компактная строка дней вылета/возврата с мини-переключателем возврата. */
+@Composable
+private fun CompactRoundTripRow(state: UiState, vm: PobedaViewModel) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "✈ Туда:",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold,
+        )
+        val shortDays = listOf(
+            DayOfWeek.MONDAY to "Пн", DayOfWeek.TUESDAY to "Вт",
+            DayOfWeek.WEDNESDAY to "Ср", DayOfWeek.THURSDAY to "Чт",
+            DayOfWeek.FRIDAY to "Пт", DayOfWeek.SATURDAY to "Сб",
+            DayOfWeek.SUNDAY to "Вс",
+        )
+        shortDays.forEach { (day, short) ->
+            MiniDayChip(short, day in state.outboundDays, MaterialTheme.colorScheme.primary) {
+                vm.toggleWeekendDay(day); vm.refreshSoon()
             }
         }
 
-        if (state.returnEnabled) {
-            DayRow(
-                caption = "↵ Обратно:",
-                selected = state.returnDays,
-                accent = MaterialTheme.colorScheme.tertiary,
-                onToggle = { day -> vm.toggleReturnDay(day) },
+        // Мини-переключатель обратных билетов — круглая кнопка ↕
+        val retColor = if (state.returnEnabled) MaterialTheme.colorScheme.tertiary
+                       else MaterialTheme.colorScheme.onSurfaceVariant
+        Surface(
+            onClick = { vm.toggleReturnEnabled(!state.returnEnabled); vm.refreshSoon() },
+            shape = CircleShape,
+            color = if (state.returnEnabled) MaterialTheme.colorScheme.tertiaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = retColor,
+        ) {
+            Icon(
+                Icons.Default.SwapVert,
+                contentDescription = if (state.returnEnabled) "Выключить обратные" else "Включить обратные",
+                modifier = Modifier.padding(6.dp).size(18.dp),
             )
         }
-    }
 
-    val dates = state.weekendDepartureDates()
-    if (dates.isNotEmpty()) {
-        val fmt = remember { DateTimeFormatter.ofPattern("EEE d MMM", RU) }
+        if (state.returnEnabled) {
+            Text(
+                "↵ Обратно:",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.tertiary,
+                fontWeight = FontWeight.Bold,
+            )
+            shortDays.forEach { (day, short) ->
+                MiniDayChip(short, day in state.returnDays, MaterialTheme.colorScheme.tertiary) {
+                    vm.toggleReturnDay(day); vm.refreshSoon()
+                }
+            }
+        }
+    }
+}
+
+/** Круглый мини-чип дня недели (компактная версия DayRow-чипа). */
+@Composable
+private fun MiniDayChip(label: String, selected: Boolean, accent: Color, onClick: () -> Unit) {
+    val chipColor by animateColorAsState(
+        targetValue = if (selected) accent.copy(alpha = 0.18f)
+                      else MaterialTheme.colorScheme.surface,
+        label = "miniday-$label",
+    )
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = chipColor,
+        contentColor = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+        border = if (selected) null else androidx.compose.foundation.BorderStroke(
+            1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
         Text(
-            text = dates.joinToString(", ") { it.format(fmt).replaceFirstChar { c -> c.uppercase(RU) } },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            modifier = Modifier.padding(bottom = 4.dp),
+            label,
+            Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
         )
     }
 }
