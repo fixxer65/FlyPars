@@ -2,8 +2,10 @@ package ru.pobedamonitor
 
 import android.Manifest
 import android.app.DatePickerDialog
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -66,6 +68,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1151,6 +1154,99 @@ private fun FavoriteStar(code: String, state: UiState, vm: PobedaViewModel) {
     }
 }
 
+/** v2.27: открывает страницу подбора билетов flypobeda.ru с выбранным рейсом. */
+private fun openPobedaSearch(context: android.content.Context, url: String) {
+    try {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    } catch (_: ActivityNotFoundException) {
+        android.widget.Toast
+            .makeText(context, "Не открылась ссылка на сайт Победы", android.widget.Toast.LENGTH_LONG)
+            .show()
+    }
+}
+
+/**
+ * v2.27: кнопка-ссылка «🛒 купить» под строкой цены — тап по ней открывает
+ * на сайте Победы страницу подбора именно этого рейса (туда/обратно с
+ * предзаполненными датами). Тап не разворачивает/не сворачивает карточку.
+ */
+@Composable
+private fun BuyLink(
+    hubIata: String,
+    arrivalIata: String,
+    depDateIso: String,
+    retDateIso: String?,
+    state: UiState,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    Text(
+        "🛒 купить ▸",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary,
+        fontWeight = FontWeight.Bold,
+        modifier = modifier
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) {
+                openPobedaSearch(
+                    context,
+                    PobedaRepository.searchUrl(
+                        hubIata, arrivalIata, depDateIso, retDateIso, state.moscowAirport,
+                    ),
+                )
+            },
+    )
+}
+
+/**
+ * v2.27: выбор аэропорта вылета из Москвы для ссылки на сайт Победы
+ * (Победа летает из Внуково; при неудачной попытке покупки можно попробовать другой).
+ */
+@Composable
+private fun MoscowAirportMenu(state: UiState, vm: PobedaViewModel) {
+    var open by remember { mutableStateOf(false) }
+    val name = PobedaRepository.MOSCOW_AIRPORTS
+        .firstOrNull { it.iata == state.moscowAirport }?.name ?: state.moscowAirport
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) { open = true },
+    ) {
+        Text(
+            "✈ $name",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Icon(
+            Icons.Default.ArrowDropDown, null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            PobedaRepository.MOSCOW_AIRPORTS.forEach { ap ->
+                DropdownMenuItem(
+                    text = { Text("${ap.name} (${ap.iata})") },
+                    trailingIcon = if (ap.iata == state.moscowAirport)
+                        { { Icon(Icons.Default.Check, null) } } else null,
+                    onClick = {
+                        vm.setMoscowAirport(ap.iata)
+                        open = false
+                    },
+                )
+            }
+        }
+    }
+}
+
 /** Сегментированный переключатель сортировки результатов по цене. */
 @Composable
 private fun SortTabs(state: UiState, vm: PobedaViewModel) {
@@ -2163,6 +2259,15 @@ private fun TripPairCard(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
+                                // v2.27: тап по цене открывает на сайте Победы подбор именно этого рейса
+                                BuyLink(
+                                    hubIata = route.hubIata,
+                                    arrivalIata = route.arrivalIata,
+                                    depDateIso = (combo.actualDepDate ?: combo.depDate).toString(),
+                                    retDateIso = combo.retDate.toString(),
+                                    state = state,
+                                    modifier = Modifier.padding(top = 2.dp),
+                                )
                             }
                         }
                     }

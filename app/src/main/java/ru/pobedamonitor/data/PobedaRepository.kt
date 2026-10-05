@@ -36,6 +36,36 @@ class PobedaRepository {
         const val TIMETABLE_API = "https://site-api.flypobeda.ru/flight-timetable"
         const val SITE_URL = "https://www.flypobeda.ru"
 
+        /** v2.27: страница поиска билетов — для прямого перехода на выбранный рейс. */
+        const val SEARCH_URL = "https://www.flypobeda.ru/mobile/search"
+
+        /**
+         * Ссылка на страницу подбора билетов flypobeda.ru с предзаполненными
+         * параметрами выбранного рейса (v2.27). Формат параметров совпадает с
+         * реальными URL сайта: dts/dtt — IATA пунктов вылета/прилёта,
+         * dtd/ddt — дат в виде dd.MM.yyyy, tripType=1 — «туда-обратно».
+         * Для Москвы подставляется конкретный аэропорт хаба (по умолчанию Внуково).
+         */
+        fun searchUrl(
+            hubIata: String,
+            arrivalIata: String,
+            depDateIso: String,
+            retDateIso: String? = null,
+            moscowAirport: String = "VKO",
+        ): String {
+            val from = if (hubIata == "MOW") moscowAirport else hubIata
+            fun ruDate(iso: String): String =
+                "${iso.substring(8, 10)}.${iso.substring(5, 7)}.${iso.substring(0, 4)}"
+            val sb = StringBuilder(SEARCH_URL)
+                .append("?adultsCount=1&childrenCount=0&infantsCount=0")
+                .append("&dts=").append(from)
+                .append("&dtt=").append(arrivalIata)
+                .append("&dtd=").append(ruDate(depDateIso))
+                .append("&tripType=1")
+            if (retDateIso != null) sb.append("&ddt=").append(ruDate(retDateIso))
+            return sb.toString()
+        }
+
         /** Аэропорты вылета из Москвы (Минск обслуживается одним аэропортом MSQ). */
         val MOSCOW_AIRPORTS = listOf(
             Airport("VKO", "Внуково"),

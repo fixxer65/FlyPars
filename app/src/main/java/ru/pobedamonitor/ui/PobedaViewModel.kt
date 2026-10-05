@@ -37,6 +37,8 @@ enum class DirectFilter { ALL, DIRECT_ONLY, TRANSFER_ONLY }
 /** Состояние экрана монитора цен. */
 data class UiState(
     val hubsSelected: Set<String> = setOf("MOW", "MSQ"),
+    /** v2.27: аэропорт вылета при переходе на сайт для хаба «Москва» (по умолчанию VKO). */
+    val moscowAirport: String = "VKO",
     val mode: SearchMode = SearchMode.ALL_DAYS,
     val fromDate: LocalDate = LocalDate.now(),
     val daysCount: Int = 14,
@@ -186,6 +188,9 @@ data class UiState(
             // v2.16: время вылета подтверждено расписанием (показывать можно)
             val outboundDepVerified: Boolean = false,
             val returnDepVerified: Boolean = false,
+            // v2.27: реальная дата тарифа «туда» (если точной даты нет — ближайшая ±3 дня),
+            // используется для ссылки на сайт при покупке
+            val actualDepDate: LocalDate? = null,
         ) {
             val total: Int get() = outboundPrice + returnPrice
 
@@ -222,6 +227,7 @@ data class UiState(
                             returnDepTime = pe.first.depTime,
                             returnDirect = pe.first.isDirect,
                             returnDepVerified = pe.first.depTimeVerified,
+                            actualDepDate = runCatching { LocalDate.parse(o.depDate) }.getOrNull(),
                         )
                     }
                 }
@@ -365,6 +371,11 @@ class PobedaViewModel(private val appContext: Context) : ViewModel() {
 
     fun setMode(mode: SearchMode) {
         _state.update { it.copy(mode = mode) }
+    }
+
+    /** v2.27: аэропорт вылета для московского хаба при переходе на сайт («Купить»). */
+    fun setMoscowAirport(iata: String) {
+        _state.update { it.copy(moscowAirport = iata) }
     }
 
     fun setDate(date: LocalDate) {
