@@ -1,7 +1,9 @@
-# Gradle
-.gradle/node_modules/
+# Gradle build artifacts
+.gradle/
+
+# Logs and error reports
+*.lognode_modules/
 .next/
 dist/
 build/
 *.log
-node_modules/
