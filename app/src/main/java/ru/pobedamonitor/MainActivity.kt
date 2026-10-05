@@ -1578,15 +1578,24 @@ private fun CompactRoundTripRow(state: UiState, vm: PobedaViewModel) {
                 },
                 onValueChange = {},
                 readOnly = true,
-                singleLine = true,
+                enabled = false, // v2.26: клик перехватывает Box ниже — тап в ЛЮБОЙ
+                singleLine = true, // пиксель поля открывает меню (текст остаётся читаемым)
                 label = { Text("Дни вылета", maxLines = 1) },
                 trailingIcon = {
                     Icon(Icons.Default.ArrowDropDown, null,
                         tint = MaterialTheme.colorScheme.primary)
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { outMenu = true },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            // Прозрачный слой поверх всего поля: любой тап внутри прямоугольника
+            // «Дни вылета» открывает выпадающий список.
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { outMenu = true }
             )
             DropdownMenu(expanded = outMenu, onDismissRequest = { outMenu = false }) {
                 shortDays.forEach { (day, short) ->
@@ -1653,15 +1662,24 @@ private fun CompactRoundTripRow(state: UiState, vm: PobedaViewModel) {
                     },
                     onValueChange = {},
                     readOnly = true,
+                    enabled = false, // v2.26: тап в ЛЮБУЮ точку поля открывает меню
                     singleLine = true,
                     label = { Text("Дни возврата", maxLines = 1) },
                     trailingIcon = {
                         Icon(Icons.Default.ArrowDropDown, null,
                             tint = MaterialTheme.colorScheme.tertiary)
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { retMenu = true },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                // Прозрачный слой поверх всего поля: любой тап внутри прямоугольника
+                // «Дни возврата» открывает выпадающий список (менять дни можно много раз).
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { retMenu = true }
                 )
                 DropdownMenu(expanded = retMenu, onDismissRequest = { retMenu = false }) {
                     shortDays.forEach { (day, short) ->
